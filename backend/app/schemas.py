@@ -34,7 +34,7 @@ class Fingerprint(BaseModel):
     model_id: str
     version: str
     normalization: NormalizationParams
-    clusters: ClusterInfo
+    clusters: Optional[ClusterInfo] = None
     w_i: Optional[dict[str, float]] = None
     t_low: Optional[float] = None
     t_high: Optional[float] = None
