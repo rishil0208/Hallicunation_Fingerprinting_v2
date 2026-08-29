@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Data (downloaded, not version-controlled)
+data/raw/
+data/processed/
+
+# Evaluation results (generated, not version-controlled)
+eval/results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gemini/Antigravity
+.gemini/

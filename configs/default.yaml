@@ -1,0 +1,32 @@
+plugins:
+  feature_extractor: "default"
+  judge: "mock"
+  dataset_loaders:
+    - name: "halueval_qa"
+      default_model_id: "chatgpt"
+    - name: "truthfulqa"
+    - name: "simpleqa"
+
+paths:
+  fingerprints_dir: "data/processed/fingerprints"
+  splits_dir: "data/processed/splits"
+  eval_results_dir: "eval/results"
+  raw_data_dir: "data/raw"
+
+experiment:
+  seed: 42
+  split_ratios: [0.6, 0.2, 0.2]
+  clustering_k: 2
+
+gate:
+  r_i_strategy: "lower"
+
+calibration:
+  threshold_bounds:
+    min_t_low: 0.0
+    max_t_high: 1.0
+  warn_if_band_lt: 0.05
+
+gemini:
+  temperature: 0
+  model: "gemini-2.0-flash"

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "hallucination-gate"
+version = "0.1.0"
+description = "Model-Calibrated Neuro-Symbolic Decision Gate for Hallucination Detection"
+requires-python = ">=3.10"
+dependencies = [
+    "setuptools<81",  # PyReason uses pkg_resources, removed in setuptools>=81
+    "pyreason",
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2.0",
+    "scikit-learn",
+    "spacy>=3.0",
+    "sentence-transformers",
+    "numpy",
+    "pandas",
+    "pyyaml",
+    "google-generativeai",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "httpx",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*", "eval*"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
