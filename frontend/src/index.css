@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* ── Signal Forensics Design Token System ── */
+/* Spec Section 5.13 */
+
+@theme {
+  /* Graphite ink scale */
+  --color-graphite-950: #0B0D10;
+  --color-graphite-800: #14171C;
+  --color-graphite-600: #262B33;
+
+  /* Paper text */
+  --color-paper-100: #E8EAED;
+  --color-paper-400: #8B93A1;
+
+  /* Three semantic signal colors — no others */
+  --color-signal-teal: #4FE3C1;
+  --color-signal-amber: #F2B84B;
+  --color-signal-coral: #FF6B4A;
+
+  /* Typography */
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ── Base styles ── */
+
+body {
+  background-color: var(--color-graphite-950);
+  color: var(--color-paper-100);
+  font-family: var(--font-body);
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+}
+
+code, .mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Verdict colors ── */
+
+.verdict-low-risk { color: var(--color-signal-teal); }
+.verdict-ambiguous { color: var(--color-signal-amber); }
+.verdict-high-risk { color: var(--color-signal-coral); }
+.verdict-resolved { color: var(--color-signal-amber); }
+
+/* ── Fingerprint Radar animation ── */
+
+@media (prefers-reduced-motion: no-preference) {
+  .radar-line {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+    animation: draw-signature 800ms ease-out forwards;
+  }
+}
+
+@keyframes draw-signature {
+  to { stroke-dashoffset: 0; }
+}
