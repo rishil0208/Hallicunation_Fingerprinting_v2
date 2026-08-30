@@ -1,4 +1,4 @@
-"""Baseline classifiers — spec Section 6 baselines 1 and 4."""
+"""Baseline classifiers — all 5 baselines from spec Section 6."""
 from __future__ import annotations
 
 import random
@@ -68,3 +68,56 @@ class MajorityClassBaseline:
             {"score": score, "verdict": "HIGH_RISK" if majority_label == 1 else "LOW_RISK"}
             for _ in records
         ]
+
+
+class NeverEscalateBaseline:
+    """Baseline 2: never-escalate / gate-only.
+
+    Uses a simple word-count heuristic as a proxy score, never escalates.
+    Every answer gets a verdict based on a fixed threshold.
+    """
+
+    name = "never_escalate"
+
+    def predict(self, records: list[Record]) -> list[dict]:
+        results = []
+        for r in records:
+            # Simple heuristic: longer answers with hedge words are riskier
+            text = r.answer.lower()
+            hedge_count = sum(
+                1 for w in ["maybe", "perhaps", "possibly", "might", "could"]
+                if w in text
+            )
+            word_count = max(len(text.split()), 1)
+            score = min(hedge_count / word_count * 10, 1.0)
+            verdict = "HIGH_RISK" if score >= 0.5 else "LOW_RISK"
+            results.append({"score": score, "verdict": verdict})
+        return results
+
+
+class LexicalBaseline:
+    """Baseline 5: generic (non-per-model) lexical classifier.
+
+    Reproduces TRACT-style pooled hedging features — uses the same H
+    (hedge density) feature but without per-model normalization or
+    thresholds, demonstrating the value of the adaptive approach.
+    """
+
+    name = "lexical_baseline"
+
+    HEDGE_WORDS = [
+        "might", "maybe", "perhaps", "possibly", "could be", "I think",
+        "I believe", "it seems", "apparently", "probably", "likely",
+        "not sure", "uncertain", "roughly", "approximately",
+    ]
+
+    def predict(self, records: list[Record]) -> list[dict]:
+        results = []
+        for r in records:
+            text = r.answer.lower()
+            word_count = max(len(text.split()), 1)
+            hedge_count = sum(1 for phrase in self.HEDGE_WORDS if phrase in text)
+            score = min((hedge_count / word_count) * 20, 1.0)
+            verdict = "HIGH_RISK" if score >= 0.3 else "LOW_RISK"
+            results.append({"score": score, "verdict": verdict})
+        return results
