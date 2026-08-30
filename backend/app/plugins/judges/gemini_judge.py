@@ -9,9 +9,33 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import urllib.request
 from typing import Optional
 
 from backend.app.schemas import JudgeResult
+
+
+def _extract_json_text(text: str) -> str:
+    """Extract JSON from LLM output, handling code fences anywhere.
+
+    Handles:
+    - Raw JSON: {"verdict": ...}
+    - Code fenced: ```json\n{...}\n```
+    - Prefixed: "Here is my analysis:\n```json\n{...}\n```"
+    """
+    # Try to find JSON inside code fences first
+    fence_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?\s*```', text, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1).strip()
+
+    # Try to find a raw JSON object
+    brace_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+    if brace_match:
+        return brace_match.group(0).strip()
+
+    # Fallback: return original text (will fail at json.loads)
+    return text
 
 
 _JUDGE_PROMPT_TEMPLATE = """You are an expert hallucination detection system. Analyze the following response for hallucination indicators.
@@ -57,24 +81,27 @@ class GeminiJudgePlugin:
 
     name = "gemini"
 
-    def __init__(self, api_key: str | None = None, model_name: str = "gemini-2.0-flash"):
+    def __init__(self, api_key: str | None = None, model_name: str = "gemini-3.6-flash"):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
         self.model_name = model_name
-        self._client = None
 
-    def _get_client(self):
-        if self._client is None:
-            if not self.api_key:
-                raise GeminiJudgeError(
-                    "GEMINI_API_KEY not set. Set it in .env or environment."
-                )
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=self.api_key)
-                self._client = genai.GenerativeModel(self.model_name)
-            except Exception as e:
-                raise GeminiJudgeError(f"Failed to initialize Gemini client: {type(e).__name__}") from None
-        return self._client
+    def _call_gemini_api(self, prompt: str) -> str:
+        if not self.api_key:
+            raise GeminiJudgeError("GEMINI_API_KEY not set. Set it in .env or environment.")
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            raise GeminiJudgeError(f"Gemini API call failed: {type(e).__name__}") from None
 
     def judge(
         self,
@@ -89,7 +116,6 @@ class GeminiJudgePlugin:
         ADR A-C1: on failure, raises GeminiJudgeError (caller returns 502).
         """
         # Build anonymized prompt (no model_id)
-        # Remove model_id from fingerprint_summary if present
         safe_summary = {
             k: v for k, v in fingerprint_summary.items()
             if k not in ("model_id", "api_key")
@@ -108,17 +134,8 @@ class GeminiJudgePlugin:
         )
 
         try:
-            client = self._get_client()
-            response = client.generate_content(prompt)
-            text = response.text.strip()
-
-            # Parse JSON response
-            # Handle markdown code fences if present
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-                text = text.strip()
+            text = self._call_gemini_api(prompt)
+            text = _extract_json_text(text)
 
             result = json.loads(text)
 

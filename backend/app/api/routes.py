@@ -6,11 +6,11 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.app.fingerprint.cluster import FEATURE_KEYS, build_fingerprint
 from backend.app.gate.calibrate import calibrate_per_model, ensure_primary_only, split_records
@@ -29,13 +29,23 @@ from backend.app.schemas import Fingerprint
 _fingerprints: dict[str, Fingerprint] = {}
 _jobs: dict[str, dict] = {}
 _eval_results: dict[str, Any] = {}
+_calibration_lock = Lock()  # A-2 fix: serialize calibration writes
+_active_calibrations: set[str] = set()  # A-2 fix: one job per model
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Register default plugins on startup."""
+    import os
+    from dotenv import load_dotenv
+    load_dotenv(".env")
+
     register_feature_extractor(DefaultFeatureExtractor())
     register_judge(MockJudgePlugin())
+    
+    if os.environ.get("GEMINI_API_KEY"):
+        from backend.app.plugins.judges.gemini_judge import GeminiJudgePlugin
+        register_judge(GeminiJudgePlugin())
     yield
 
 
@@ -49,8 +59,11 @@ app = FastAPI(
 
 # ── Request/Response schemas ──
 
+# A-1 fix: max_length prevents DoS via spaCy tokenization of huge payloads
+MAX_ANSWER_LENGTH = 50_000
+
 class ScoreRequest(BaseModel):
-    answer: str
+    answer: str = Field(..., max_length=MAX_ANSWER_LENGTH)
     model_id: str
 
 
@@ -102,11 +115,15 @@ def score_endpoint(request: ScoreRequest):
 
     fingerprint = _fingerprints[request.model_id]
 
+    import os
+    judge_to_use = "gemini" if os.environ.get("GEMINI_API_KEY") else "mock"
+
     try:
         result = score_answer(
             answer=request.answer,
             model_id=request.model_id,
             fingerprint=fingerprint,
+            judge_name=judge_to_use,
         )
     except UncalibratedModelError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -181,6 +198,15 @@ def get_fingerprint(model_id: str):
 @app.post("/api/v1/models/{model_id}/calibrate", response_model=CalibrateResponse)
 def calibrate_model(model_id: str):
     """Trigger background calibration job for a model."""
+    # A-2 fix: reject duplicate concurrent calibrations for same model
+    with _calibration_lock:
+        if model_id in _active_calibrations:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Calibration already in progress for '{model_id}'",
+            )
+        _active_calibrations.add(model_id)
+
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {"status": "pending", "result": None}
 
@@ -199,6 +225,13 @@ def calibrate_model(model_id: str):
             records = list(loader.load())
             records = ensure_primary_only(records)
 
+            # CR-3 fix: cap records for practical calibration time
+            max_samples = 2000
+            if len(records) > max_samples:
+                import random
+                rng = random.Random(42)
+                records = rng.sample(records, max_samples)
+
             # Split
             train, val, test = split_records(records)
 
@@ -212,15 +245,28 @@ def calibrate_model(model_id: str):
 
             # Calibrate thresholds on validation data
             from backend.app.gate.score import compute_gate_score
+            from backend.app.gate.rules import compute_fact_activations, compute_rule_activations
+            from backend.app.fingerprint.cluster import normalize_features
 
             val_features = [extractor.extract(r.answer) for r in val]
             val_labels = [r.label for r in val]
             val_scores = []
+            val_rule_activations = []
             for vf in val_features:
                 eval_result = compute_gate_score(vf, fp)
                 val_scores.append(eval_result.gate_score)
+                # CR-1: collect per-rule activations for w_i learning
+                normalized = normalize_features(vf, fp.normalization)
+                facts = compute_fact_activations(normalized)
+                rules = compute_rule_activations(facts)
+                val_rule_activations.append([strength for _, strength, _ in rules])
 
-            t_low, t_high, w_i = calibrate_per_model(val_scores, val_labels)
+            rule_names = [name for name, _, _ in rules] if val_rule_activations else None
+            t_low, t_high, w_i = calibrate_per_model(
+                val_scores, val_labels,
+                rule_names=rule_names,
+                rule_activations=val_rule_activations,
+            )
 
             # Update fingerprint with calibrated values
             fp.t_low = t_low
@@ -228,7 +274,8 @@ def calibrate_model(model_id: str):
             fp.w_i = w_i
             fp.last_calibrated_at = datetime.now(timezone.utc).isoformat()
 
-            _fingerprints[model_id] = fp
+            with _calibration_lock:
+                _fingerprints[model_id] = fp
             _jobs[job_id] = {
                 "status": "complete",
                 "result": {
@@ -241,6 +288,9 @@ def calibrate_model(model_id: str):
 
         except Exception as e:
             _jobs[job_id] = {"status": "failed", "result": {"error": str(e)}}
+        finally:
+            with _calibration_lock:
+                _active_calibrations.discard(model_id)
 
     thread = Thread(target=_run_calibration, daemon=True)
     thread.start()

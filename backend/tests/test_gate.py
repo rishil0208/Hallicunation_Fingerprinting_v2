@@ -53,10 +53,10 @@ class TestFactActivations:
         activations = compute_fact_activations(features)
         assert activations["hedging_high"] == 0.0
 
-    def test_low_specificity_activates_specificity_low(self):
-        features = {"H": 0.0, "S": 0.2, "C": 0.0, "E": 0.5, "D": 0.0, "M": 0.0}
+    def test_high_specificity_activates_specificity_high(self):
+        features = {"H": 0.0, "S": 0.8, "C": 0.0, "E": 0.5, "D": 0.0, "M": 0.0}
         activations = compute_fact_activations(features)
-        assert activations["specificity_low"] > 0
+        assert activations["specificity_high"] > 0
 
 
 # ── Rule activation tests ──
