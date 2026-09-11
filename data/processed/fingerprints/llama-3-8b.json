@@ -1,0 +1,55 @@
+{
+  "model_id": "llama-3-8b",
+  "version": "v1",
+  "normalization": {
+    "feature_mins": {
+      "H": 0.0,
+      "S": 0.0,
+      "C": 0.0,
+      "E": 0.0,
+      "D": 0.0,
+      "M": 0.0
+    },
+    "feature_maxs": {
+      "H": 12.0,
+      "S": 0.8,
+      "C": 1.0,
+      "E": 1.0,
+      "D": 0.15,
+      "M": 10.0
+    }
+  },
+  "clusters": {
+    "centroids": [
+      {
+        "H": 0.2,
+        "S": 0.65,
+        "C": 0.08,
+        "E": 0.82,
+        "D": 0.02,
+        "M": 0.15
+      },
+      {
+        "H": 0.72,
+        "S": 0.28,
+        "C": 0.6,
+        "E": 0.22,
+        "D": 0.07,
+        "M": 0.68
+      }
+    ],
+    "cluster_labels": [
+      "correct_region",
+      "hallucination_region"
+    ]
+  },
+  "w_i": {
+    "anomaly_pattern_1": 0.35,
+    "anomaly_pattern_2": 0.4,
+    "anomaly_pattern_3": 0.25
+  },
+  "t_low": 0.09,
+  "t_high": 0.24,
+  "calibration_dataset_size": 1500,
+  "last_calibrated_at": "2026-09-10T12:00:00Z"
+}

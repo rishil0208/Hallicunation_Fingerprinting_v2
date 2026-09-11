@@ -1,0 +1,55 @@
+{
+  "model_id": "gpt-3.5-turbo",
+  "version": "v1",
+  "normalization": {
+    "feature_mins": {
+      "H": 0.0,
+      "S": 0.0,
+      "C": 0.0,
+      "E": 0.0,
+      "D": 0.0,
+      "M": 0.0
+    },
+    "feature_maxs": {
+      "H": 11.0,
+      "S": 0.8,
+      "C": 1.0,
+      "E": 1.0,
+      "D": 0.14,
+      "M": 11.0
+    }
+  },
+  "clusters": {
+    "centroids": [
+      {
+        "H": 0.22,
+        "S": 0.68,
+        "C": 0.09,
+        "E": 0.8,
+        "D": 0.02,
+        "M": 0.18
+      },
+      {
+        "H": 0.75,
+        "S": 0.25,
+        "C": 0.62,
+        "E": 0.19,
+        "D": 0.075,
+        "M": 0.7
+      }
+    ],
+    "cluster_labels": [
+      "correct_region",
+      "hallucination_region"
+    ]
+  },
+  "w_i": {
+    "anomaly_pattern_1": 0.36,
+    "anomaly_pattern_2": 0.38,
+    "anomaly_pattern_3": 0.26
+  },
+  "t_low": 0.08,
+  "t_high": 0.22,
+  "calibration_dataset_size": 1800,
+  "last_calibrated_at": "2026-09-11T10:00:00Z"
+}

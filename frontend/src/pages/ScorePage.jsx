@@ -25,9 +25,30 @@ export default function ScorePage() {
 
   useEffect(() => {
     listModels()
-      .then(setModels)
+      .then((data) => {
+        setModels(data);
+        if (data.length > 0) {
+          setModelId((prev) => prev || data[0].model_id);
+        }
+      })
       .catch(() => setModels([]));
   }, []);
+
+  function loadSample(type) {
+    if (type === 'factual') {
+      setAnswer(
+        "The Apollo 11 mission landed on the Moon on July 20, 1969. Neil Armstrong and Buzz Aldrin spent over two hours exploring the lunar surface while Michael Collins remained in lunar orbit."
+      );
+    } else if (type === 'hallucinated') {
+      setAnswer(
+        "Studies show that maybe this happened without evidence. Research suggests that perhaps it is true. Sources indicate that arguably secret ancient pyramids were discovered, but it is not certain."
+      );
+    } else if (type === 'ambiguous') {
+      setAnswer(
+        "Studies show that maybe this occurred on Mars. Research suggests that perhaps alien structures exist there. Sources indicate that arguably secret ancient pyramids were discovered, but it is not certain."
+      );
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -77,15 +98,42 @@ export default function ScorePage() {
           </select>
           {models.length === 0 && (
             <p className="text-xs text-paper-400 mt-1">
-              No calibrated models. Calibrate a model first via the API or Models page.
+              No calibrated models found.
             </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm text-paper-400 mb-1">
-            Response to analyze
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm text-paper-400">
+              Response to analyze
+            </label>
+            <div className="flex gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => loadSample('factual')}
+                className="text-signal-teal hover:underline font-medium"
+              >
+                + Low Risk (Factual)
+              </button>
+              <span className="text-graphite-600">|</span>
+              <button
+                type="button"
+                onClick={() => loadSample('ambiguous')}
+                className="text-signal-amber hover:underline font-medium"
+              >
+                + Ambiguous (Escalates)
+              </button>
+              <span className="text-graphite-600">|</span>
+              <button
+                type="button"
+                onClick={() => loadSample('hallucinated')}
+                className="text-signal-coral hover:underline font-medium"
+              >
+                + High Risk (Hallucination)
+              </button>
+            </div>
+          </div>
           <textarea
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}

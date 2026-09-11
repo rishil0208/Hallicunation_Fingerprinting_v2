@@ -109,11 +109,14 @@ def classify(
     t_low = fingerprint.t_low
     t_high = fingerprint.t_high
 
-    # ADR A-M2: bounds validation
-    t_low = max(0.0, min(t_low, 1.0))
+    # ADR A-M2: bounds validation — ensure 0.0 ≤ T_L < T_H ≤ 1.0
+    t_low = max(0.0, min(t_low, 0.95))   # cap at 0.95 so t_high can be > t_low
     t_high = max(0.0, min(t_high, 1.0))
     if t_low >= t_high:
+        # Push t_low down rather than t_high up, to avoid the t_low=1.0 deadlock
         t_high = min(t_low + 0.05, 1.0)
+        if t_low >= t_high:
+            t_low = t_high - 0.05
 
     G = gate_evaluation.gate_score
 

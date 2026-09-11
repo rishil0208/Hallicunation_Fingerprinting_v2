@@ -16,6 +16,9 @@ export default function ModelsPage() {
       .then((m) => {
         setModels(m);
         setLoading(false);
+        if (m.length > 0) {
+          selectModel(m[0].model_id);
+        }
       })
       .catch(() => setLoading(false));
   }, []);

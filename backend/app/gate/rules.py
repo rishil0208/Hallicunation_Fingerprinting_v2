@@ -9,7 +9,7 @@ from backend.app.schemas import TriggeredPattern
 # These are the calibrated interval boundaries from spec Section 5.5
 DEFAULT_FACT_THRESHOLDS = {
     "hedging_high": ("H", 0.5),       # normalized H >= 0.5 → hedging_high
-    "specificity_low": ("S", 0.5),     # normalized S <= 0.5 → specificity_low (inverted)
+    "specificity_high": ("S", 0.5),    # normalized S >= 0.5 → specificity_high (spec 5.5)
     "citation_vague": ("C", 0.3),      # normalized C >= 0.3 → citation_vague
     "evidence_low": ("E", 0.5),        # normalized E <= 0.5 → evidence_low (inverted)
     "drift_high": ("D", 0.3),          # normalized D >= 0.3 → drift_high
@@ -26,8 +26,8 @@ RULES = [
     },
     {
         "name": "anomaly_pattern_2",
-        "description": "Low specificity + low evidence",
-        "antecedents": ["specificity_low", "evidence_low"],
+        "description": "High specificity + low evidence (fabricated details)",
+        "antecedents": ["specificity_high", "evidence_low"],
         "features_involved": ["S", "E"],
     },
     {
@@ -55,8 +55,8 @@ def compute_fact_activations(
     for fact_name, (feature_key, threshold) in thresholds.items():
         val = normalized_features.get(feature_key, 0.0)
 
-        # Inverted features: specificity_low, evidence_low
-        if fact_name in ("specificity_low", "evidence_low"):
+        # Inverted features: evidence_low (fires when value is BELOW threshold)
+        if fact_name == "evidence_low":
             if val <= threshold:
                 activations[fact_name] = 1.0 - (val / max(threshold, 1e-10))
             else:

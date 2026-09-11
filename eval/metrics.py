@@ -9,14 +9,24 @@ def auroc(y_true: list[int], y_score: list[float]) -> float:
     """Area Under ROC Curve."""
     if len(set(y_true)) < 2:
         return float("nan")
-    return float(roc_auc_score(y_true, y_score))
+    # A-5 fix: scrub NaN/inf values
+    clean = [(t, s) for t, s in zip(y_true, y_score) if np.isfinite(s)]
+    if len(clean) < 2 or len(set(t for t, _ in clean)) < 2:
+        return float("nan")
+    ct, cs = zip(*clean)
+    return float(roc_auc_score(list(ct), list(cs)))
 
 
 def auprc(y_true: list[int], y_score: list[float]) -> float:
     """Area Under Precision-Recall Curve (primary metric per spec)."""
     if len(set(y_true)) < 2:
         return float("nan")
-    return float(average_precision_score(y_true, y_score))
+    # A-5 fix: scrub NaN/inf values
+    clean = [(t, s) for t, s in zip(y_true, y_score) if np.isfinite(s)]
+    if len(clean) < 2 or len(set(t for t, _ in clean)) < 2:
+        return float("nan")
+    ct, cs = zip(*clean)
+    return float(average_precision_score(list(ct), list(cs)))
 
 
 def ece(y_true: list[int], y_score: list[float], n_bins: int = 10) -> float:

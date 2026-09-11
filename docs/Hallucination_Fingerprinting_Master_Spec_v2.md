@@ -1,140 +1,197 @@
 # Hallucination Fingerprinting — Master Engineering Specification (v2, Full-Stack)
-
 ### Model-Calibrated Neuro-Symbolic Decision Gate — ML Pipeline + FastAPI Backend + Frontend
 
-Prepared for: Rishil (TAM — The AI and ML Club, VIT Vellore) Purpose: Definitive, end-to-end project specification — research pipeline, plugin-based backend, and a genuinely distinctive frontend — plus a single copy-paste-ready master prompt for an AI coding agent (Cline).
+Prepared for: Rishil (TAM — The AI and ML Club, VIT Vellore)
+Purpose: Definitive, end-to-end project specification — research pipeline, plugin-based backend, and a
+genuinely distinctive frontend — plus a single copy-paste-ready master prompt for an AI coding agent (Cline).
 
-This is v2 of the spec. It supersedes the earlier ML-only version by adding a full-stack application layer (Sections 5.12–5.14, updated Section 7 repo layout, updated Section 8 team, and a much longer Section 11 master prompt). Sections 1–4, 6, 9–10 are carried over unchanged from the validated v1 reasoning; Section 5 is extended, not replaced.
+This is v2 of the spec. It supersedes the earlier ML-only version by adding a full-stack application layer
+(Sections 5.12–5.14, updated Section 7 repo layout, updated Section 8 team, and a much longer Section 11
+master prompt). Sections 1–4, 6, 9–10 are carried over unchanged from the validated v1 reasoning; Section 5
+is extended, not replaced.
 
 ---
 
 ## SECTION 1 — PROJECT UNDERSTANDING
 
-**Problem statement.** Existing hallucination detectors treat every model identically and rely on either (a) expensive fact-verification against a knowledge base, requiring ground truth per query, or (b) opaque internal-state methods (logits, hidden activations, latent embeddings) that are uninterpretable and often require white-box model access. This project instead treats hallucination as a **per-model behavioral phenomenon**: each LLM has a measurable, characteristic linguistic "tell" — a signature pattern in hedging, specificity, citation phrasing, and confidence markers — that correlates with when it is fabricating rather than recalling. The system detects hallucination risk from **black-box text alone**, using a three-stage pipeline that escalates cost only when necessary, exposed through a real application (API + UI), not just a notebook.
+**Problem statement.** Existing hallucination detectors treat every model identically and rely on either
+(a) expensive fact-verification against a knowledge base, requiring ground truth per query, or (b) opaque
+internal-state methods (logits, hidden activations, latent embeddings) that are uninterpretable and often
+require white-box model access. This project instead treats hallucination as a **per-model behavioral
+phenomenon**: each LLM has a measurable, characteristic linguistic "tell" — a signature pattern in hedging,
+specificity, citation phrasing, and confidence markers — that correlates with when it is fabricating rather
+than recalling. The system detects hallucination risk from **black-box text alone**, using a three-stage
+pipeline that escalates cost only when necessary, exposed through a real application (API + UI), not just a
+notebook.
 
-**Inputs.** A single LLM-generated answer to a factual question, plus an identifier for which model produced it (so the correct fingerprint/gate is loaded). At the application layer, inputs arrive via HTTP requests (pasted text, or a batch file upload) rather than only as in-memory Python objects.
+**Inputs.** A single LLM-generated answer to a factual question, plus an identifier for which model produced
+it (so the correct fingerprint/gate is loaded). At the application layer, inputs arrive via HTTP requests
+(pasted text, or a batch file upload) rather than only as in-memory Python objects.
 
-**Outputs.** One of three verdicts — LOW RISK, HIGH RISK, or (internally) AMBIGUOUS-then-resolved — plus a structured explanation naming which behavioral signal(s) triggered the classification. At the application layer, this is returned as JSON from the API and rendered visually in the frontend (see Section 5.13).
+**Outputs.** One of three verdicts — LOW RISK, HIGH RISK, or (internally) AMBIGUOUS-then-resolved — plus a
+structured explanation naming which behavioral signal(s) triggered the classification. At the application
+layer, this is returned as JSON from the API and rendered visually in the frontend (see Section 5.13).
 
-**Prediction target.** Response-level hallucination risk in v1. Claim-level decomposition remains a documented extension, not a v1 requirement — this discipline does not change just because a frontend is being added; scope creep into claim-level UI (e.g., highlighting individual sentences) is explicitly deferred to v2 of the product, not silently absorbed into v1's timeline.
+**Prediction target.** Response-level hallucination risk in v1. Claim-level decomposition remains a
+documented extension, not a v1 requirement — this discipline does not change just because a frontend is
+being added; scope creep into claim-level UI (e.g., highlighting individual sentences) is explicitly
+deferred to v2 of the product, not silently absorbed into v1's timeline.
 
-**Unit of analysis, confidence semantics, evidence representation, uncertainty representation, system boundaries** — unchanged from v1 (see below, condensed): one full model response to one factual question; `G` is a defined, calibrated quantity, not a native probability, unless a calibration step is actually run; no external knowledge base is used, "evidence" means extracted behavioral telemetry; uncertainty is represented structurally via the AMBIGUOUS band between `T_L` and `T_H`.
+**Unit of analysis, confidence semantics, evidence representation, uncertainty representation, system
+boundaries** — unchanged from v1 (see below, condensed): one full model response to one factual question;
+`G` is a defined, calibrated quantity, not a native probability, unless a calibration step is actually run;
+no external knowledge base is used, "evidence" means extracted behavioral telemetry; uncertainty is
+represented structurally via the AMBIGUOUS band between `T_L` and `T_H`.
 
-**New system boundary for v2 (full-stack):** the API and frontend are a **research demonstration and evaluation interface**, not a production SaaS product. This must be stated plainly in the UI itself (a visible, honestly worded disclaimer, not a legal footer buried in fine print) — the system is not adversarially robust, is not fact-checking, and is a research artifact. Aesthetic polish should not imply a production-grade guarantee the system doesn't have.
+**New system boundary for v2 (full-stack):** the API and frontend are a **research demonstration and
+evaluation interface**, not a production SaaS product. This must be stated plainly in the UI itself (a
+visible, honestly worded disclaimer, not a legal footer buried in fine print) — the system is not
+adversarially robust, is not fact-checking, and is a research artifact. Aesthetic polish should not imply a
+production-grade guarantee the system doesn't have.
 
 **Explicitly identified ambiguities (resolved by assumption, extended for v2):**
-
 1. Feature set: six features — H, S, C, E, D, M (defined in Section 5.3, unchanged from v1).
 2. Threshold/weight learning: grid/Bayesian search on a validation split (Section 5.6/6, unchanged).
 3. Ground truth source: HaluEval primary, TruthfulQA/SimpleQA secondary (Section 6, unchanged).
 4. Judge context: LLM judge sees which rules were ambiguous, not just the raw answer (unchanged).
-5. **New — API authentication**: v1 of the API assumes a single-user, local/demo deployment context (no multi-tenant auth system). API keys for the underlying Gemini calls are server-side only, never exposed to the frontend. This is an explicit, documented limitation, not an oversight.
-6. **New — plugin scope**: plugins are for swapping _interchangeable components_ (feature extractors, judges, dataset loaders) behind a stable interface — not a general-purpose third-party extension marketplace. Do not over-engineer the plugin system into something bigger than the project needs.
+5. **New — API authentication**: v1 of the API assumes a single-user, local/demo deployment context (no
+   multi-tenant auth system). API keys for the underlying Gemini calls are server-side only, never exposed
+   to the frontend. This is an explicit, documented limitation, not an oversight.
+6. **New — plugin scope**: plugins are for swapping *interchangeable components* (feature extractors,
+   judges, dataset loaders) behind a stable interface — not a general-purpose third-party extension
+   marketplace. Do not over-engineer the plugin system into something bigger than the project needs.
 
 ---
 
 ## SECTION 2 — CURRENT STATE OF THE ART
 
-_(Unchanged from v1 — carried over for completeness. Items marked "verified" were confirmed via search during this project's research phase; items marked "general knowledge" are standard field background and should be spot-checked before being cited in any paper or patent filing.)_
+*(Unchanged from v1 — carried over for completeness. Items marked "verified" were confirmed via search
+during this project's research phase; items marked "general knowledge" are standard field background and
+should be spot-checked before being cited in any paper or patent filing.)*
 
-|Family|Representative approach|Access needed|Interpretable?|Per-model calibrated?|
+| Family | Representative approach | Access needed | Interpretable? | Per-model calibrated? |
 |---|---|---|---|---|
-|Retrieval/fact verification|KB lookup, RAG-grounded claim check|Black-box|Partially|No|
-|Self-consistency|SelfCheckGPT, SAC³ (sample N outputs, check agreement) — _general knowledge_|Black-box|No|No|
-|Contradiction/NLI-based|ConFactCheck-style fact-alignment + uniform-distribution check — _verified_|Black-box + token probs|Partially|No|
-|Internal-representation|Eigenvalue analysis of hidden activations (LLM-Check) — _verified_; entropy-distribution fingerprinting — _verified_|White-box|No|Yes, but opaque|
-|Latent-embedding|Vodafone VAE patent: output vector → latent space anomaly, no ground truth needed — _verified_|Black-box|No|Unclear from public summary|
-|Cascade/regeneration|Google patent: detect hallucination, regenerate, verify second response — _verified_|Black-box|Partially|Unclear|
-|Lexical/stylistic (general)|TRACT: hedging trends + step-length dynamics for long-form reasoning — _verified_|Black-box|Yes|No (global scorer)|
-|Model fingerprinting (different purpose)|Llmmap, CoTSRF, DuFFin, SRAF, Copyleaks — model _identification_, not hallucination — _verified_|Black-box|Partially|Yes, wrong target variable|
-|Governance/composite scoring|LTI MindTree, Accenture, ServiceNow, BMC, Oracle filings — dashboards — _verified_|N/A|N/A|N/A|
+| Retrieval/fact verification | KB lookup, RAG-grounded claim check | Black-box | Partially | No |
+| Self-consistency | SelfCheckGPT, SAC³ (sample N outputs, check agreement) — *general knowledge* | Black-box | No | No |
+| Contradiction/NLI-based | ConFactCheck-style fact-alignment + uniform-distribution check — *verified* | Black-box + token probs | Partially | No |
+| Internal-representation | Eigenvalue analysis of hidden activations (LLM-Check) — *verified*; entropy-distribution fingerprinting — *verified* | White-box | No | Yes, but opaque |
+| Latent-embedding | Vodafone VAE patent: output vector → latent space anomaly, no ground truth needed — *verified* | Black-box | No | Unclear from public summary |
+| Cascade/regeneration | Google patent: detect hallucination, regenerate, verify second response — *verified* | Black-box | Partially | Unclear |
+| Lexical/stylistic (general) | TRACT: hedging trends + step-length dynamics for long-form reasoning — *verified* | Black-box | Yes | No (global scorer) |
+| Model fingerprinting (different purpose) | Llmmap, CoTSRF, DuFFin, SRAF, Copyleaks — model *identification*, not hallucination — *verified* | Black-box | Partially | Yes, wrong target variable |
+| Governance/composite scoring | LTI MindTree, Accenture, ServiceNow, BMC, Oracle filings — dashboards — *verified* | N/A | N/A | N/A |
 
-**The gap this project targets:** an interpretable, feature-based, **per-model-adaptive** gate sitting before an LLM judge, where adaptivity applies to the escalation decision boundary itself, not just cluster centroids. Nothing found combines all three properties (interpretable + per-model-adaptive + targets hallucination specifically, not authorship).
+**The gap this project targets:** an interpretable, feature-based, **per-model-adaptive** gate sitting before
+an LLM judge, where adaptivity applies to the escalation decision boundary itself, not just cluster
+centroids. Nothing found combines all three properties (interpretable + per-model-adaptive + targets
+hallucination specifically, not authorship).
 
 ---
 
 ## SECTION 3 — NOVELTY OPTIONS
 
-_(Unchanged from v1; carried over for completeness.)_
+*(Unchanged from v1; carried over for completeness.)*
 
-**Option A — Per-model fingerprint + LLM judge (2-stage).** Necessary infrastructure, not the differentiator on its own. Patentability weak alone.
+**Option A — Per-model fingerprint + LLM judge (2-stage).** Necessary infrastructure, not the differentiator
+on its own. Patentability weak alone.
 
-**Option B — Neuro-symbolic gate with a fixed global threshold.** Rejected as final form — a single global threshold can't account for models with structurally different baseline hedging/specificity rates.
+**Option B — Neuro-symbolic gate with a fixed global threshold.** Rejected as final form — a single global
+threshold can't account for models with structurally different baseline hedging/specificity rates.
 
-**Option C — Model-Calibrated Neuro-Symbolic Decision Gate (adaptive per-model thresholds `T_L`, `T_H`, and rule weights `w_i`) — SELECTED.** Directly fixes Option B's failure mode. Central falsifiable hypothesis: adaptive per-model thresholds achieve a better AUROC-vs-escalation-rate Pareto frontier than a global threshold fit across all models pooled. Full detail in Section 4.
+**Option C — Model-Calibrated Neuro-Symbolic Decision Gate (adaptive per-model thresholds `T_L`, `T_H`, and
+rule weights `w_i`) — SELECTED.** Directly fixes Option B's failure mode. Central falsifiable hypothesis:
+adaptive per-model thresholds achieve a better AUROC-vs-escalation-rate Pareto frontier than a global
+threshold fit across all models pooled. Full detail in Section 4.
 
-**Rejected without full write-up:** reinforcement learning for threshold tuning (no evidence it would outperform simpler calibration here); full claim-level decomposition (separate, larger project — documented future work, not v1 scope).
+**Rejected without full write-up:** reinforcement learning for threshold tuning (no evidence it would
+outperform simpler calibration here); full claim-level decomposition (separate, larger project — documented
+future work, not v1 scope).
 
 ---
 
 ## SECTION 4 — SELECTED CORE CONTRIBUTION
 
-**The Model-Calibrated Neuro-Symbolic Decision Gate.** A three-stage architecture: (1) black-box behavioral telemetry extraction, (2) a deterministic symbolic rule graph evaluating that telemetry against per-model-calibrated thresholds to produce a bounded anomaly score `G`, cheaply resolving clear-cut cases with no LLM call, and (3) a secondary LLM judge invoked only when `G` falls in the model-specific AMBIGUOUS band, receiving the specific ambiguous rule activations as targeted context.
+**The Model-Calibrated Neuro-Symbolic Decision Gate.** A three-stage architecture: (1) black-box behavioral
+telemetry extraction, (2) a deterministic symbolic rule graph evaluating that telemetry against
+per-model-calibrated thresholds to produce a bounded anomaly score `G`, cheaply resolving clear-cut cases
+with no LLM call, and (3) a secondary LLM judge invoked only when `G` falls in the model-specific AMBIGUOUS
+band, receiving the specific ambiguous rule activations as targeted context.
 
-**Central claim:** making the escalation boundary itself part of the per-model fingerprint — not a fixed global threshold — improves the cost/accuracy tradeoff, because different models have measurably different baseline behavioral distributions.
+**Central claim:** making the escalation boundary itself part of the per-model fingerprint — not a fixed
+global threshold — improves the cost/accuracy tradeoff, because different models have measurably different
+baseline behavioral distributions.
 
-This remains the single coherent idea the entire system (research pipeline _and_ application layer) exists to test and demonstrate. The frontend's job is to make this specific mechanism visible and legible to a viewer — not to become a generic "AI dashboard" that could belong to any project.
+This remains the single coherent idea the entire system (research pipeline *and* application layer) exists
+to test and demonstrate. The frontend's job is to make this specific mechanism visible and legible to a
+viewer — not to become a generic "AI dashboard" that could belong to any project.
 
 ---
 
 ## SECTION 5 — FINAL SYSTEM ARCHITECTURE
 
 ### 5.1 Data ingestion
-
 - **Responsibility**: load QA pairs + model responses + ground-truth hallucination labels.
-- **Input**: HaluEval is the **primary** source (`github.com/RUCAIBox/HaluEval`), specifically the **QA subset** (`qa_data.json` — correct response, hallucinated response, supporting knowledge), not the dialogue subset, since the project targets single-turn factual QA, not multi-turn conversation. TruthfulQA (`huggingface.co/datasets/truthfulqa/truthful_qa`) and SimpleQA are **secondary/evaluation-only**.
-- **Output**: normalized `Record{question, answer, model_id, label, source_dataset, dataset_role}`, where `dataset_role ∈ {"primary","secondary"}` is required on every record.
-- **Failure modes**: label schema mismatch; accidental pooling of secondary data into calibration splits (mitigated by a required, tested filter — see Section 7).
+- **Input**: HaluEval is the **primary** source (`github.com/RUCAIBox/HaluEval`), specifically the **QA
+  subset** (`qa_data.json` — correct response, hallucinated response, supporting knowledge), not the
+  dialogue subset, since the project targets single-turn factual QA, not multi-turn conversation. TruthfulQA
+  (`huggingface.co/datasets/truthfulqa/truthful_qa`) and SimpleQA are **secondary/evaluation-only**.
+- **Output**: normalized `Record{question, answer, model_id, label, source_dataset, dataset_role}`, where
+  `dataset_role ∈ {"primary","secondary"}` is required on every record.
+- **Failure modes**: label schema mismatch; accidental pooling of secondary data into calibration splits
+  (mitigated by a required, tested filter — see Section 7).
 
 ### 5.2 Dataset normalization
-
-- HaluEval QA subset labels map directly (already a hallucinated/correct response pair per question). TruthfulQA's correct/incorrect reference answers are unrolled into a binary label and explicitly commented in code as a _factuality_ proxy, not a clean hallucination label (see Section 6 rationale — TruthfulQA often reflects human-misconception errors rather than fabrication). SimpleQA gets its own explicit mapping documented at implementation time. Every mapping is dataset-specific and code-reviewed individually.
+- HaluEval QA subset labels map directly (already a hallucinated/correct response pair per question).
+  TruthfulQA's correct/incorrect reference answers are unrolled into a binary label and explicitly commented
+  in code as a *factuality* proxy, not a clean hallucination label (see Section 6 rationale — TruthfulQA
+  often reflects human-misconception errors rather than fabrication). SimpleQA gets its own explicit mapping
+  documented at implementation time. Every mapping is dataset-specific and code-reviewed individually.
 
 ### 5.3 Feature extraction (the telemetry layer)
-
 Six features, computed deterministically from response text — no LLM call:
 
-|Feature|Definition (v1)|Method|
+| Feature | Definition (v1) | Method |
 |---|---|---|
-|H — hedge density|hedge-phrase count / 100 words|lexicon match|
-|S — specificity|ratio of named entities + numbers/dates to total tokens|spaCy NER + regex|
-|C — citation vagueness|source-gesturing phrases not followed by a named source within N tokens|pattern match + proximity check|
-|E — evidence density|concrete, checkable factual assertions per sentence|entity + relation co-occurrence heuristic|
-|D — semantic/entity drift|embedding-similarity variance across sentences|sentence embeddings + pairwise cosine variance|
-|M — confidence-marker density|absolute/confidence words / 100 words|lexicon match|
+| H — hedge density | hedge-phrase count / 100 words | lexicon match |
+| S — specificity | ratio of named entities + numbers/dates to total tokens | spaCy NER + regex |
+| C — citation vagueness | source-gesturing phrases not followed by a named source within N tokens | pattern match + proximity check |
+| E — evidence density | concrete, checkable factual assertions per sentence | entity + relation co-occurrence heuristic |
+| D — semantic/entity drift | embedding-similarity variance across sentences | sentence embeddings + pairwise cosine variance |
+| M — confidence-marker density | absolute/confidence words / 100 words | lexicon match |
 
-Each feature is normalized to `[0,1]` per model using that model's own training-set distribution. This per-model normalization is itself part of what makes the fingerprint per-model, distinct from the downstream threshold adaptivity.
+Each feature is normalized to `[0,1]` per model using that model's own training-set distribution. This
+per-model normalization is itself part of what makes the fingerprint per-model, distinct from the downstream
+threshold adaptivity.
 
 ### 5.4 Fingerprint construction (offline, per model)
-
-- k-means or GMM clustering of labeled feature vectors, separately per model, into hallucination/correct style regions. Output: a versioned, serializable fingerprint file per model (centroids, normalization parameters, later augmented with calibrated weights/thresholds in 5.6).
+- k-means or GMM clustering of labeled feature vectors, separately per model, into hallucination/correct
+  style regions. Output: a versioned, serializable fingerprint file per model (centroids, normalization
+  parameters, later augmented with calibrated weights/thresholds in 5.6).
 
 ### 5.5 Symbolic rule graph (PyReason)
-
 Facts derived from normalized features via calibrated interval annotation:
-
 ```
 hedging_high(answer)    : [0.82, 1.00]
 specificity_high(answer): [0.76, 1.00]
 citation_vague(answer)  : [0.91, 1.00]
 evidence_low(answer)    : [0.70, 1.00]
 ```
-
 Relational pattern rules:
-
 ```
 anomaly_pattern_1(X) <- hedging_high(X), citation_vague(X)
 anomaly_pattern_2(X) <- specificity_high(X), evidence_low(X)
 anomaly_pattern_3(X) <- confidence_high(X), entity_drift_high(X)
 ```
-
-Aggregate score: `G = Σ w_i * r_i`, where `r_i` is rule activation strength and `w_i` is a learned, per-model weight. **Preserved correction**: PyReason provides annotated real-valued bounds on facts/rule conclusions, not an automatically calibrated hallucination probability — `G` is defined and calibrated by this system, not supplied natively. This must appear in any paper/patent draft and in the frontend's own explanatory copy (see 5.13) — do not let UI copy imply `G` is a native, out-of-the-box probability.
+Aggregate score: `G = Σ w_i * r_i`, where `r_i` is rule activation strength and `w_i` is a learned,
+per-model weight. **Preserved correction**: PyReason provides annotated real-valued bounds on facts/rule
+conclusions, not an automatically calibrated hallucination probability — `G` is defined and calibrated by
+this system, not supplied natively. This must appear in any paper/patent draft and in the frontend's own
+explanatory copy (see 5.13) — do not let UI copy imply `G` is a native, out-of-the-box probability.
 
 ### 5.6 Threshold and weight calibration (offline, per model)
-
-- `w_i` and per-model `(T_L, T_H)` learned on a validation split by optimizing the joint objective in Section 6 — never chosen by inspection.
+- `w_i` and per-model `(T_L, T_H)` learned on a validation split by optimizing the joint objective in
+  Section 6 — never chosen by inspection.
 - Verdict logic:
-
 ```
 G < T_L         → LOW RISK      (accept, no escalation)
 T_L ≤ G ≤ T_H   → AMBIGUOUS     (escalate to LLM judge)
@@ -142,37 +199,46 @@ G > T_H         → HIGH RISK     (flag, no escalation)
 ```
 
 ### 5.7 LLM judge escalation (Stage 3, Gemini)
-
-- Invoked only on AMBIGUOUS verdicts. Prompt includes the answer text, the model's fingerprint summary, and specifically which rule(s) produced the ambiguous activation.
-- **Output**: final risk verdict + natural-language explanation, returned as structured JSON (not free text) so the frontend can render it reliably — see 5.12 for the exact schema.
+- Invoked only on AMBIGUOUS verdicts. Prompt includes the answer text, the model's fingerprint summary, and
+  specifically which rule(s) produced the ambiguous activation.
+- **Output**: final risk verdict + natural-language explanation, returned as structured JSON (not free text)
+  so the frontend can render it reliably — see 5.12 for the exact schema.
 
 ### 5.8 Explainability layer
-
-- Every verdict returns: `{verdict, G, triggered_patterns, resolved_by: "gate"|"judge", explanation, feature_breakdown: {H,S,C,E,D,M}}`. Never presents unverifiable LLM chain-of-thought as ground truth — the judge's explanation is clearly labeled as model-generated reasoning, not fact, both in the API schema (`explanation_source: "symbolic"|"llm_judge"`) and in the UI copy.
+- Every verdict returns: `{verdict, G, triggered_patterns, resolved_by: "gate"|"judge", explanation,
+  feature_breakdown: {H,S,C,E,D,M}}`. Never presents unverifiable LLM chain-of-thought as ground truth — the
+  judge's explanation is clearly labeled as model-generated reasoning, not fact, both in the API schema
+  (`explanation_source: "symbolic"|"llm_judge"`) and in the UI copy.
 
 ### 5.9 Logging & experiment tracking
-
-- All runs versioned (config, fingerprint version, code commit hash). Lightweight tooling (structured JSON logs or MLflow) — no custom infrastructure beyond what's needed.
+- All runs versioned (config, fingerprint version, code commit hash). Lightweight tooling (structured JSON
+  logs or MLflow) — no custom infrastructure beyond what's needed.
 
 ### 5.10 Evaluation pipeline
-
 See Section 6 in full.
 
 ### 5.11 Deployment assumptions (revised for v2)
-
-The application (API + frontend) is deployable as a local or lightly-hosted demo (e.g., `uvicorn` locally, or a single free-tier deployment such as Render/Railway/Fly.io for a live demo link during a presentation) — it is explicitly **not** designed, claimed, or engineered as a scalable, multi-tenant production system. No horizontal scaling, no queueing infrastructure, no production auth system are in scope. State this plainly in both the README and the in-app disclaimer.
+The application (API + frontend) is deployable as a local or lightly-hosted demo (e.g., `uvicorn` locally, or
+a single free-tier deployment such as Render/Railway/Fly.io for a live demo link during a presentation) — it
+is explicitly **not** designed, claimed, or engineered as a scalable, multi-tenant production system. No
+horizontal scaling, no queueing infrastructure, no production auth system are in scope. State this plainly
+in both the README and the in-app disclaimer.
 
 ---
 
 ### 5.12 API Layer (FastAPI)
 
-**Responsibility.** Expose the three-stage pipeline over HTTP, in a way a frontend (or a curl command, or a grader) can call directly, with a plugin registry so components can be swapped without touching call sites.
+**Responsibility.** Expose the three-stage pipeline over HTTP, in a way a frontend (or a curl command, or a
+grader) can call directly, with a plugin registry so components can be swapped without touching call sites.
 
 **Design principles for this layer:**
-
-- The API is the single source of truth for verdicts — the frontend never runs pipeline logic client-side, it only calls the API and renders what comes back. This keeps the research logic in one place, testable independently of any UI concern.
+- The API is the single source of truth for verdicts — the frontend never runs pipeline logic client-side,
+  it only calls the API and renders what comes back. This keeps the research logic in one place, testable
+  independently of any UI concern.
 - Every response follows one strict Pydantic schema (below) — no ad hoc JSON shapes per endpoint.
-- Long-running operations (fingerprint construction/calibration for a new model) are separated from fast operations (scoring a single answer) — the former is a background job with a status-poll endpoint, the latter is a synchronous request/response.
+- Long-running operations (fingerprint construction/calibration for a new model) are separated from
+  fast operations (scoring a single answer) — the former is a background job with a status-poll endpoint,
+  the latter is a synchronous request/response.
 
 **Core endpoints:**
 
@@ -216,9 +282,12 @@ GET  /api/v1/health
   Basic liveness check.
 ```
 
-**Plugin architecture (this satisfies the explicit "plugins" requirement — keep it this scoped, not bigger):**
+**Plugin architecture (this satisfies the explicit "plugins" requirement — keep it this scoped, not
+bigger):**
 
-Three plugin interfaces, each a simple Python ABC or Protocol, registered in a small in-process registry (a dict keyed by plugin name — do not reach for a heavyweight plugin-discovery framework for a project this size):
+Three plugin interfaces, each a simple Python ABC or Protocol, registered in a small in-process registry
+(a dict keyed by plugin name — do not reach for a heavyweight plugin-discovery framework for a project this
+size):
 
 ```python
 class FeatureExtractorPlugin(Protocol):
@@ -237,80 +306,134 @@ class DatasetLoaderPlugin(Protocol):
         ...
 ```
 
-- The default `FeatureExtractorPlugin` implements the six features in 5.3. A second, optional plugin (e.g., an alternate lexicon or a different NER backend) demonstrates the interface is real, not decorative — build at least one alternate implementation, even a simple one, so "plugin" isn't just an unused abstraction.
-- The default `JudgePlugin` calls Gemini. A `MockJudgePlugin` (returns a deterministic canned response) must also exist and be the default in tests and local dev without an API key — this avoids tests silently depending on a live API key being present, which is a common source of flaky CI.
-- `DatasetLoaderPlugin` implementations exist for HaluEval, TruthfulQA, SimpleQA, each tagging `dataset_role` correctly per Section 5.1's rule.
-- Plugins are selected via configuration (a YAML/env value naming which plugin to use per component), not hardcoded imports scattered through the codebase — this is what makes it a genuine plugin system rather than a rebranded if/else chain.
+- The default `FeatureExtractorPlugin` implements the six features in 5.3. A second, optional plugin
+  (e.g., an alternate lexicon or a different NER backend) demonstrates the interface is real, not
+  decorative — build at least one alternate implementation, even a simple one, so "plugin" isn't just an
+  unused abstraction.
+- The default `JudgePlugin` calls Gemini. A `MockJudgePlugin` (returns a deterministic canned response) must
+  also exist and be the default in tests and local dev without an API key — this avoids tests silently
+  depending on a live API key being present, which is a common source of flaky CI.
+- `DatasetLoaderPlugin` implementations exist for HaluEval, TruthfulQA, SimpleQA, each tagging
+  `dataset_role` correctly per Section 5.1's rule.
+- Plugins are selected via configuration (a YAML/env value naming which plugin to use per component), not
+  hardcoded imports scattered through the codebase — this is what makes it a genuine plugin system rather
+  than a rebranded if/else chain.
 
-**What NOT to build**: user accounts, billing, rate limiting beyond a basic in-memory guard, a general third-party plugin marketplace, WebSocket streaming (polling is sufficient at this scale). Building any of these without being asked is scope creep and violates the project's explicit anti-complexity principle.
+**What NOT to build**: user accounts, billing, rate limiting beyond a basic in-memory guard, a general
+third-party plugin marketplace, WebSocket streaming (polling is sufficient at this scale). Building any of
+these without being asked is scope creep and violates the project's explicit anti-complexity principle.
 
 ---
 
 ### 5.13 Frontend Layer — Aesthetic Direction
 
-**Framing.** This is not a generic admin dashboard. The subject is genuinely visual and specific: a model's "fingerprint" is, literally, a signature pattern — treat that literally rather than defaulting to a generic SaaS-analytics look (no cream background + terracotta accent, no near-black + acid-green, no broadsheet hairline-rule template — these are the current AI-generated-design defaults and this brief has enough of a real, specific subject to earn something distinctive instead).
+**Framing.** This is not a generic admin dashboard. The subject is genuinely visual and specific: a model's
+"fingerprint" is, literally, a signature pattern — treat that literally rather than defaulting to a generic
+SaaS-analytics look (no cream background + terracotta accent, no near-black + acid-green, no broadsheet
+hairline-rule template — these are the current AI-generated-design defaults and this brief has enough of a
+real, specific subject to earn something distinctive instead).
 
-**Design concept: "Signal Forensics."** The system reads a model's writing the way a forensic analyst reads a signature or a voiceprint — looking for the involuntary tells underneath the surface content. The UI should feel like a forensic instrument: precise, technical, slightly clinical, with data treated as physical evidence rather than decoration.
+**Design concept: "Signal Forensics."** The system reads a model's writing the way a forensic analyst reads
+a signature or a voiceprint — looking for the involuntary tells underneath the surface content. The UI
+should feel like a forensic instrument: precise, technical, slightly clinical, with data treated as physical
+evidence rather than decoration.
 
 **Token system:**
 
-_Color_ (named, not generic):
-
+*Color* (named, not generic):
 - `--graphite-950: #0B0D10` — base background, a true near-black ink, not pure #000
 - `--graphite-800: #14171C` — panel/surface background
 - `--graphite-600: #262B33` — borders, dividers, inactive states
-- `--paper-100: #E8EAED` — primary text (deliberately named "paper" against the "ink" background — the forensic-document metaphor)
+- `--paper-100: #E8EAED` — primary text (deliberately named "paper" against the "ink" background — the
+  forensic-document metaphor)
 - `--paper-400: #8B93A1` — secondary/muted text
 - `--signal-teal: #4FE3C1` — primary accent: LOW RISK / clear signal / calibrated-confidence state
 - `--signal-amber: #F2B84B` — AMBIGUOUS state / escalation-in-progress
 - `--signal-coral: #FF6B4A` — HIGH RISK / flagged state
 
-Do not introduce additional accent hues beyond these three semantic signal colors — the discipline of "three meanings, three colors, nothing else competing for attention" is the point, and mirrors the actual three-way verdict logic of the system itself (structure encoding real information, not decoration).
+Do not introduce additional accent hues beyond these three semantic signal colors — the discipline of
+"three meanings, three colors, nothing else competing for attention" is the point, and mirrors the actual
+three-way verdict logic of the system itself (structure encoding real information, not decoration).
 
-_Typography:_
-
-- Display face: **Space Grotesk** (geometric, slightly technical, has real personality without being a default choice) — used with restraint, primarily for the hero statement and section headers.
+*Typography:*
+- Display face: **Space Grotesk** (geometric, slightly technical, has real personality without being a
+  default choice) — used with restraint, primarily for the hero statement and section headers.
 - Body face: **Inter** — quiet, legible, does not compete with the display face.
-- Data/telemetry face: **JetBrains Mono** — used specifically for anything that is a _measurement_: feature values, gate scores, thresholds, model IDs, timestamps. This typographic distinction (mono for data, humanist sans for prose) is itself a piece of information design: it tells the viewer "this number is measured evidence" vs. "this is explanation," reinforcing the forensic framing without needing a label.
+- Data/telemetry face: **JetBrains Mono** — used specifically for anything that is a *measurement*: feature
+  values, gate scores, thresholds, model IDs, timestamps. This typographic distinction (mono for data,
+  humanist sans for prose) is itself a piece of information design: it tells the viewer "this number is
+  measured evidence" vs. "this is explanation," reinforcing the forensic framing without needing a label.
 
-_Layout concept:_ a **scan report**, not a dashboard grid. The primary score view for a single answer reads top to bottom like a lab result: input → extracted telemetry (six features, shown as a horizontal bar per feature with the model's calibrated normal range marked) → the gate's verdict with its score plotted on a line between `T_L` and `T_H` for that specific model → (if escalated) the judge's explanation, visually subordinate to and clearly separated from the gate's own output, never blended together as if from the same source.
+*Layout concept:* a **scan report**, not a dashboard grid. The primary score view for a single answer reads
+top to bottom like a lab result: input → extracted telemetry (six features, shown as a horizontal bar per
+feature with the model's calibrated normal range marked) → the gate's verdict with its score plotted on a
+line between `T_L` and `T_H` for that specific model → (if escalated) the judge's explanation, visually
+subordinate to and clearly separated from the gate's own output, never blended together as if from the same
+source.
 
-**Signature element (the one memorable thing, per design methodology — spend the boldness here, keep everything else quiet): the Fingerprint Radar.**
+**Signature element (the one memorable thing, per design methodology — spend the boldness here, keep
+everything else quiet): the Fingerprint Radar.**
 
-A radial/polar plot with six axes (H, S, C, E, D, M), rendered to visually resemble a fingerprint's ridge pattern rather than a generic radar chart:
+A radial/polar plot with six axes (H, S, C, E, D, M), rendered to visually resemble a fingerprint's ridge
+pattern rather than a generic radar chart:
+- The model's *calibrated normal region* (bounded by that model's per-feature ranges from its fingerprint)
+  is drawn as a soft, filled, slightly irregular ring — not a perfect polygon — using layered, slightly
+  offset concentric paths at low opacity to genuinely evoke ridge lines, colored `--signal-teal` at low
+  opacity.
+- The *current answer's* feature vector is plotted as a single sharp line on top of that ring, colored by
+  its verdict state (teal/amber/coral).
+- Where the current line pushes outside the calibrated ring, that stretch of the line is visually
+  emphasized (slightly thicker, brighter) — this is the "which tell fired" explanation made visual, not just
+  textual, directly reinforcing the explainability principle from Section 5.8 rather than being decorative.
+- This same visualization, shown per-model with no current-answer overlay, is what powers the
+  `/models/{model_id}/fingerprint` view — i.e., it's a genuine reusable component representing the actual
+  data structure, not a one-off hero graphic.
 
-- The model's _calibrated normal region_ (bounded by that model's per-feature ranges from its fingerprint) is drawn as a soft, filled, slightly irregular ring — not a perfect polygon — using layered, slightly offset concentric paths at low opacity to genuinely evoke ridge lines, colored `--signal-teal` at low opacity.
-- The _current answer's_ feature vector is plotted as a single sharp line on top of that ring, colored by its verdict state (teal/amber/coral).
-- Where the current line pushes outside the calibrated ring, that stretch of the line is visually emphasized (slightly thicker, brighter) — this is the "which tell fired" explanation made visual, not just textual, directly reinforcing the explainability principle from Section 5.8 rather than being decorative.
-- This same visualization, shown per-model with no current-answer overlay, is what powers the `/models/{model_id}/fingerprint` view — i.e., it's a genuine reusable component representing the actual data structure, not a one-off hero graphic.
-
-**Motion:** restrained. A single deliberate moment — when a verdict resolves, the Fingerprint Radar's current-answer line draws itself stroke-by-stroke (a signature literally being "signed" onto the page) over roughly 600–800ms, rather than snapping in instantly. No other animation beyond this and ordinary, non-showy hover/focus states. Respect `prefers-reduced-motion` — fall back to an instant, non-animated render.
+**Motion:** restrained. A single deliberate moment — when a verdict resolves, the Fingerprint Radar's
+current-answer line draws itself stroke-by-stroke (a signature literally being "signed" onto the page) over
+roughly 600–800ms, rather than snapping in instantly. No other animation beyond this and ordinary,
+non-showy hover/focus states. Respect `prefers-reduced-motion` — fall back to an instant, non-animated
+render.
 
 **Pages/views required:**
+1. **Score a Response** (primary/home view) — paste an answer, pick a model, submit, see the scan-report
+   layout described above, ending in the Fingerprint Radar with the current answer overlaid.
+2. **Model Fingerprints** — browse calibrated models, view each one's baseline Fingerprint Radar and
+   calibration metadata (dataset size, last calibrated, `T_L`/`T_H`).
+3. **Evaluation** — the honest research view: AUROC/AUPRC/ECE per model, escalation rate, and the
+   adaptive-vs-global-threshold comparison chart that is the actual research claim of this project — this
+   page exists specifically to make Section 6's core experiment legible to a viewer, not as a generic
+   "analytics" page.
+4. A visible, plainly worded **research-demo disclaimer** (persistent, not a dismissible modal) — reflecting
+   the honesty principle from Section 5.11 and Section 10's conservative patent stance: this is a research
+   prototype, not a production fact-checking guarantee.
 
-1. **Score a Response** (primary/home view) — paste an answer, pick a model, submit, see the scan-report layout described above, ending in the Fingerprint Radar with the current answer overlaid.
-2. **Model Fingerprints** — browse calibrated models, view each one's baseline Fingerprint Radar and calibration metadata (dataset size, last calibrated, `T_L`/`T_H`).
-3. **Evaluation** — the honest research view: AUROC/AUPRC/ECE per model, escalation rate, and the adaptive-vs-global-threshold comparison chart that is the actual research claim of this project — this page exists specifically to make Section 6's core experiment legible to a viewer, not as a generic "analytics" page.
-4. A visible, plainly worded **research-demo disclaimer** (persistent, not a dismissible modal) — reflecting the honesty principle from Section 5.11 and Section 10's conservative patent stance: this is a research prototype, not a production fact-checking guarantee.
+**Copy/voice:** plain, technical, no marketing language. Verdicts are stated as what they are ("Gate score
+0.74 — within this model's ambiguous band (0.61–0.79), escalated for review"), not dramatized ("Uh oh, looks
+fishy!"). Empty/error states explain what happened and what to do next, in the interface's own voice.
 
-**Copy/voice:** plain, technical, no marketing language. Verdicts are stated as what they are ("Gate score 0.74 — within this model's ambiguous band (0.61–0.79), escalated for review"), not dramatized ("Uh oh, looks fishy!"). Empty/error states explain what happened and what to do next, in the interface's own voice.
-
-**Stack recommendation:** React + Tailwind for the frontend (Tailwind config extended with the exact token values above, not default Tailwind palette), calling the FastAPI backend via `fetch`. Keep the frontend a single cohesive app, not a component-library showcase — build only the components this spec actually describes.
+**Stack recommendation:** React + Tailwind for the frontend (Tailwind config extended with the exact token
+values above, not default Tailwind palette), calling the FastAPI backend via `fetch`. Keep the frontend a
+single cohesive app, not a component-library showcase — build only the components this spec actually
+describes.
 
 ---
 
 ### 5.14 Plugin Architecture — Summary Cross-Reference
 
-Covered fully in 5.12. Restated here only to note the design/engineering split: the _frontend_ never needs to know a plugin system exists — it only ever talks to the stable `/api/v1/*` contract in 5.12. Plugin swaps happen entirely server-side via configuration. This separation must be preserved; do not let frontend code branch on which plugin is active.
+Covered fully in 5.12. Restated here only to note the design/engineering split: the *frontend* never needs
+to know a plugin system exists — it only ever talks to the stable `/api/v1/*` contract in 5.12. Plugin
+swaps happen entirely server-side via configuration. This separation must be preserved; do not let frontend
+code branch on which plugin is active.
 
 ---
 
 ## SECTION 6 — RESEARCH PLAN
 
-_(Unchanged from v1 — carried over for completeness, since the application layer consumes these results via `/api/v1/eval/summary` and must not duplicate or reinterpret them.)_
+*(Unchanged from v1 — carried over for completeness, since the application layer consumes these results via
+`/api/v1/eval/summary` and must not duplicate or reinterpret them.)*
 
 **Baselines** (all must be implemented, not just cited):
-
 1. Always-escalate (every answer to the LLM judge).
 2. Never-escalate / gate-only.
 3. Global-threshold gate (single `(T_L, T_H)` pooled across models — the direct ablation target).
@@ -319,31 +442,39 @@ _(Unchanged from v1 — carried over for completeness, since the application lay
 
 **Datasets:**
 
-|Dataset|Role|Size|Source|
+| Dataset | Role | Size | Source |
 |---|---|---|---|
-|**HaluEval (QA subset)**|**Primary**|~10,000 samples (correct response, hallucinated response, supporting knowledge)|`github.com/RUCAIBox/HaluEval` → `data/qa_data.json`|
-|**TruthfulQA**|Secondary/adversarial|817 questions, 38 categories|`huggingface.co/datasets/truthfulqa/truthful_qa`|
-|**SimpleQA**|Secondary|short-answer QA pairs|Hugging Face / OpenAI release|
-|**MedHallu** (optional)|Out-of-domain robustness only|1,000 human-labeled + 9,000 synthetic|`huggingface.co/datasets/UTAustin-AIHealth/MedHallu`|
+| **HaluEval (QA subset)** | **Primary** | ~10,000 samples (correct response, hallucinated response, supporting knowledge) | `github.com/RUCAIBox/HaluEval` → `data/qa_data.json` |
+| **TruthfulQA** | Secondary/adversarial | 817 questions, 38 categories | `huggingface.co/datasets/truthfulqa/truthful_qa` |
+| **SimpleQA** | Secondary | short-answer QA pairs | Hugging Face / OpenAI release |
+| **MedHallu** (optional) | Out-of-domain robustness only | 1,000 human-labeled + 9,000 synthetic | `huggingface.co/datasets/UTAustin-AIHealth/MedHallu` |
 
-Rationale for HaluEval-primary: a 2026 benchmark analysis (HalluLens) argues TruthfulQA reflects human misconception/factuality errors more than fabrication-style hallucination, and includes time-sensitive prompts whose correct answer changes — a different failure mode from what H/S/C/E/D/M are designed to detect. HaluEval's labels are constructed specifically around hallucination, matching this project's target variable directly.
+Rationale for HaluEval-primary: a 2026 benchmark analysis (HalluLens) argues TruthfulQA reflects human
+misconception/factuality errors more than fabrication-style hallucination, and includes time-sensitive
+prompts whose correct answer changes — a different failure mode from what H/S/C/E/D/M are designed to
+detect. HaluEval's labels are constructed specifically around hallucination, matching this project's target
+variable directly.
 
-**Metrics:** AUROC, AUPRC (primary given expected class imbalance), ECE (required if `G` is ever presented as a probability anywhere, including in the frontend), escalation rate, latency per verdict, cost per verdict (LLM calls avoided).
+**Metrics:** AUROC, AUPRC (primary given expected class imbalance), ECE (required if `G` is ever presented
+as a probability anywhere, including in the frontend), escalation rate, latency per verdict, cost per
+verdict (LLM calls avoided).
 
-**Core experiment:** per-model adaptive `(T_L, T_H, w_i)` vs. global pooled `(T_L, T_H, w_i)`, same features, same rule structure, reported as a Pareto frontier of AUROC vs. escalation rate across ≥2–3 distinct models.
+**Core experiment:** per-model adaptive `(T_L, T_H, w_i)` vs. global pooled `(T_L, T_H, w_i)`, same features,
+same rule structure, reported as a Pareto frontier of AUROC vs. escalation rate across ≥2–3 distinct models.
 
 **Ablations:** feature-subset ablation; learned vs. uniform `w_i`; cluster-count sensitivity.
 
-**Sensitivity analysis:** how much labeled data per model is required before adaptive thresholds outperform global ones.
+**Sensitivity analysis:** how much labeled data per model is required before adaptive thresholds outperform
+global ones.
 
-**Reproducibility:** fixed seeds, versioned splits, documented hyperparameter search ranges, code+config committed alongside every reported number.
+**Reproducibility:** fixed seeds, versioned splits, documented hyperparameter search ranges, code+config
+committed alongside every reported number.
 
 ---
 
 ## SECTION 7 — ENGINEERING PLAN
 
 **Repository structure (v2, full-stack):**
-
 ```
 hallucination-gate/
   backend/
@@ -410,67 +541,100 @@ hallucination-gate/
 ```
 
 **Implementation sequence (strict order):**
-
-1. Data ingestion + normalization, HaluEval QA subset first (tests validating label mapping and `dataset_role` filtering before TruthfulQA/SimpleQA are added).
+1. Data ingestion + normalization, HaluEval QA subset first (tests validating label mapping and
+   `dataset_role` filtering before TruthfulQA/SimpleQA are added).
 2. Feature extraction (unit tests on hand-crafted example sentences with known expected feature values).
 3. Baselines 1 and 4 — get the evaluation harness working end-to-end before any novel component exists.
 4. Fingerprint clustering (Stage 1).
-5. Symbolic gate with a global fixed threshold first (Baseline 3) — the ablation baseline before the full contribution.
+5. Symbolic gate with a global fixed threshold first (Baseline 3) — the ablation baseline before the full
+   contribution.
 6. Per-model adaptive calibration (the core research contribution).
 7. LLM judge integration + escalation logic (`MockJudgePlugin` first, `GeminiJudgePlugin` second).
 8. Full pipeline evaluation + ablations, results written to a location `/api/v1/eval/summary` can read.
-9. **Backend API** — wrap the now-working pipeline in FastAPI routes per Section 5.12. Do not build the API before the pipeline it wraps is real; an API around a stubbed pipeline invites drift between what the UI demos and what the research actually shows.
-10. **Frontend** — build against the real API, in the order: Score a Response → Model Fingerprints → Evaluation → Disclaimer/shell polish. Use Section 5.13's tokens from the start; do not build with default Tailwind colors and "re-skin later" — the aesthetic direction should inform component structure from the first component, not be applied as a coat of paint at the end.
+9. **Backend API** — wrap the now-working pipeline in FastAPI routes per Section 5.12. Do not build the API
+   before the pipeline it wraps is real; an API around a stubbed pipeline invites drift between what the UI
+   demos and what the research actually shows.
+10. **Frontend** — build against the real API, in the order: Score a Response → Model Fingerprints →
+    Evaluation → Disclaimer/shell polish. Use Section 5.13's tokens from the start; do not build with
+    default Tailwind colors and "re-skin later" — the aesthetic direction should inform component structure
+    from the first component, not be applied as a coat of paint at the end.
 11. Documentation and write-up.
 
 ---
 
 ## SECTION 8 — MULTI-AGENT TEAM DESIGN
 
-|Role|Owns|Produces|Reviews|Must never decide alone|
+| Role | Owns | Produces | Reviews | Must never decide alone |
 |---|---|---|---|---|
-|Principal Architect|overall system design, scope discipline|architecture docs, ADRs|all major structural changes|scope expansion beyond Section 4's core claim|
-|Research Lead|experiment design, metric choice|research plan, ablation design|statistical claims before write-up|whether a result counts as "novel"|
-|ML Engineer|feature extraction, gate, calibration code|working modules + tests|Research Lead's experiment design for implementability|final threshold values (must come from calibration)|
-|Backend Engineer|FastAPI routes, plugin registry, job system|API + plugin code + tests|API contract changes against Section 5.12|changing the response schema without updating the frontend contract in the same change|
-|Frontend/UX Engineer|component implementation of Section 5.13's direction|React components, Tailwind tokens|any visual decision not derivable from the token system|introducing a new accent color or typeface outside the token system|
-|Evaluation Scientist|metrics correctness, leakage checks|evaluation reports|every reported number before use in a claim or in the Evaluation page|whether an ablation "proves" the hypothesis|
-|Red-Team/Adversarial Engineer|stress-testing the gate|adversarial test cases|robustness claims, including any UI copy that might overstate robustness|—|
-|Code Reviewer|code quality, maintainability|review comments|every PR/commit|merging own unreviewed work|
+| Principal Architect | overall system design, scope discipline | architecture docs, ADRs | all major structural changes | scope expansion beyond Section 4's core claim |
+| Research Lead | experiment design, metric choice | research plan, ablation design | statistical claims before write-up | whether a result counts as "novel" |
+| ML Engineer | feature extraction, gate, calibration code | working modules + tests | Research Lead's experiment design for implementability | final threshold values (must come from calibration) |
+| Backend Engineer | FastAPI routes, plugin registry, job system | API + plugin code + tests | API contract changes against Section 5.12 | changing the response schema without updating the frontend contract in the same change |
+| Frontend/UX Engineer | component implementation of Section 5.13's direction | React components, Tailwind tokens | any visual decision not derivable from the token system | introducing a new accent color or typeface outside the token system |
+| Evaluation Scientist | metrics correctness, leakage checks | evaluation reports | every reported number before use in a claim or in the Evaluation page | whether an ablation "proves" the hypothesis |
+| Red-Team/Adversarial Engineer | stress-testing the gate | adversarial test cases | robustness claims, including any UI copy that might overstate robustness | — |
+| Code Reviewer | code quality, maintainability | review comments | every PR/commit | merging own unreviewed work |
 
-**Interaction principle unchanged**: no role self-certifies its own output. The Frontend/UX Engineer in particular does not get to unilaterally decide the aesthetic direction diverges from Section 5.13 — that's an Architect-level decision, logged in `docs/decisions.md` like any other.
+**Interaction principle unchanged**: no role self-certifies its own output. The Frontend/UX Engineer in
+particular does not get to unilaterally decide the aesthetic direction diverges from Section 5.13 — that's
+an Architect-level decision, logged in `docs/decisions.md` like any other.
 
 ---
 
 ## SECTION 9 — FAILURE / SECURITY / ADVERSARIAL STRATEGY
 
-_(Core taxonomy unchanged from v1; extended with application-layer failure modes.)_
+*(Core taxonomy unchanged from v1; extended with application-layer failure modes.)*
 
-**Pipeline-level** (unchanged): cold-start (no fingerprint for a queried model — must explicitly refuse or fall back with a flagged low-confidence warning, never silently apply another model's thresholds); fingerprint drift; lexicon brittleness to paraphrase; threshold overfitting on small validation sets; correlated features reducing the graph's real independent evidence (check via correlation analysis before claiming the multi-pattern graph adds value over a single composite score).
+**Pipeline-level** (unchanged): cold-start (no fingerprint for a queried model — must explicitly refuse or
+fall back with a flagged low-confidence warning, never silently apply another model's thresholds);
+fingerprint drift; lexicon brittleness to paraphrase; threshold overfitting on small validation sets;
+correlated features reducing the graph's real independent evidence (check via correlation analysis before
+claiming the multi-pattern graph adds value over a single composite score).
 
 **Application-layer (new for v2):**
-
-- _Backend_: the Gemini API key must never be sent to or accessible from the frontend — server-side only, loaded from environment/secrets, never logged. The `/calibrate` endpoint (a potentially expensive operation) needs at minimum a basic guard against being triggered repeatedly/accidentally (e.g., reject a new calibration job for a model while one is already running for it).
-- _Frontend_: never fabricate a plausible-looking result while a request is loading — use honest loading states, not skeleton screens that could be mistaken for a real (but empty) result.
-- _Adversarial gaming_: this is a style-only detector; a crafted answer (artificially low hedging + high fake specificity) could slip under `T_L`. This limitation must be stated in the Disclaimer view, not just in engineering docs — the honesty principle applies to the UI's own copy, not only to internal documentation.
+- *Backend*: the Gemini API key must never be sent to or accessible from the frontend — server-side only,
+  loaded from environment/secrets, never logged. The `/calibrate` endpoint (a potentially expensive
+  operation) needs at minimum a basic guard against being triggered repeatedly/accidentally (e.g., reject a
+  new calibration job for a model while one is already running for it).
+- *Frontend*: never fabricate a plausible-looking result while a request is loading — use honest loading
+  states, not skeleton screens that could be mistaken for a real (but empty) result.
+- *Adversarial gaming*: this is a style-only detector; a crafted answer (artificially low hedging + high
+  fake specificity) could slip under `T_L`. This limitation must be stated in the Disclaimer view, not just
+  in engineering docs — the honesty principle applies to the UI's own copy, not only to internal
+  documentation.
 
 ---
 
 ## SECTION 10 — PATENT / NOVELTY ASSESSMENT
 
-_(Unchanged, conservative, carried over from v1.)_
+*(Unchanged, conservative, carried over from v1.)*
 
-The adaptive-threshold-as-fingerprint mechanism remains the strongest single claim element identified, and does not appear in any patent or paper found to date. However: no professional prior-art search has been conducted (only web search and summarized patent-landscape posts — a hard blocker on any confident patentability claim); zero reduction to practice existed as of the prior version of this document — **this v2 spec, by requiring the core experiment (Section 6) to run before the API is built (Section 7, step 9), structurally forces reduction to practice to happen before the demo layer exists**, which is a meaningful improvement in patent posture, not just an engineering nicety. Non-obviousness risk remains real: every individual component (symbolic gating, per-model calibration, cascading verification) exists somewhere in the literature; the claim rests on the specific combination plus the adaptive-threshold twist.
+The adaptive-threshold-as-fingerprint mechanism remains the strongest single claim element identified, and
+does not appear in any patent or paper found to date. However: no professional prior-art search has been
+conducted (only web search and summarized patent-landscape posts — a hard blocker on any confident
+patentability claim); zero reduction to practice existed as of the prior version of this document — **this
+v2 spec, by requiring the core experiment (Section 6) to run before the API is built (Section 7, step 9),
+structurally forces reduction to practice to happen before the demo layer exists**, which is a meaningful
+improvement in patent posture, not just an engineering nicety. Non-obviousness risk remains real: every
+individual component (symbolic gating, per-model calibration, cascading verification) exists somewhere in
+the literature; the claim rests on the specific combination plus the adaptive-threshold twist.
 
-Recommended path unchanged: file a provisional now to lock priority date on the architecture; treat the core experiment as urgent; commission a real prior-art search before the complete specification is due; narrow claims into one strong independent claim (adaptive threshold mechanism) plus dependent claims (feature set, graph structure, escalation logic).
+Recommended path unchanged: file a provisional now to lock priority date on the architecture; treat the core
+experiment as urgent; commission a real prior-art search before the complete specification is due; narrow
+claims into one strong independent claim (adaptive threshold mechanism) plus dependent claims (feature set,
+graph structure, escalation logic).
 
-The frontend/backend application is **evidence of reduction to practice and a demonstration vehicle** — it is not itself the subject of the patent claim. Do not conflate "we built a nice UI" with "we have a stronger patent" in any pitch; the UI's value is making the underlying mechanism legible and testable to a human reviewer, nothing more, nothing less.
+The frontend/backend application is **evidence of reduction to practice and a demonstration vehicle** — it
+is not itself the subject of the patent claim. Do not conflate "we built a nice UI" with "we have a stronger
+patent" in any pitch; the UI's value is making the underlying mechanism legible and testable to a human
+reviewer, nothing more, nothing less.
 
 ---
 
 ## SECTION 11 — FINAL MASTER PROMPT
 
-_(Copy everything below this line into Cline or an equivalent coding agent. This supersedes the v1 master prompt — it is longer and covers the full stack deliberately; do not summarize or trim it before pasting.)_
+*(Copy everything below this line into Cline or an equivalent coding agent. This supersedes the v1 master
+prompt — it is longer and covers the full stack deliberately; do not summarize or trim it before pasting.)*
 
 ```
 You are not merely a code generator. You are the implementation arm of a senior AI research and engineering
@@ -812,4 +976,5 @@ Read it in full during your first Discovery pass before writing any code.
 
 ---
 
-_End of specification. Section 11's code block is the standalone copy-paste unit; Sections 1–10 are the supporting rationale, research plan, and design system it references._
+*End of specification. Section 11's code block is the standalone copy-paste unit; Sections 1–10 are the
+supporting rationale, research plan, and design system it references.*

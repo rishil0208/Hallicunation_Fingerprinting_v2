@@ -10,6 +10,8 @@ from threading import Lock, Thread
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend.app.fingerprint.cluster import FEATURE_KEYS, build_fingerprint
@@ -31,6 +33,21 @@ _jobs: dict[str, dict] = {}
 _eval_results: dict[str, Any] = {}
 _calibration_lock = Lock()  # A-2 fix: serialize calibration writes
 _active_calibrations: set[str] = set()  # A-2 fix: one job per model
+FP_STORAGE_DIR = Path("data/processed/fingerprints")
+
+
+def load_stored_fingerprints() -> None:
+    """Load pre-calibrated fingerprints from disk into memory."""
+    if not FP_STORAGE_DIR.exists():
+        FP_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    for fp_file in sorted(FP_STORAGE_DIR.glob("*.json")):
+        try:
+            with open(fp_file, "r") as f:
+                data = json.load(f)
+                fp = Fingerprint(**data)
+                _fingerprints[fp.model_id] = fp
+        except Exception:
+            pass
 
 
 @asynccontextmanager
@@ -40,12 +57,25 @@ async def lifespan(application: FastAPI):
     from dotenv import load_dotenv
     load_dotenv(".env")
 
-    register_feature_extractor(DefaultFeatureExtractor())
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+    extractor = DefaultFeatureExtractor()
+    register_feature_extractor(extractor)
     register_judge(MockJudgePlugin())
     
     if os.environ.get("GEMINI_API_KEY"):
         from backend.app.plugins.judges.gemini_judge import GeminiJudgePlugin
         register_judge(GeminiJudgePlugin())
+
+    load_stored_fingerprints()
+
+    # Pre-warm extractor so live inference requests evaluate in milliseconds
+    try:
+        extractor.extract("Initial warmup sentence for model cache.")
+    except Exception:
+        pass
+
     yield
 
 
@@ -276,6 +306,12 @@ def calibrate_model(model_id: str):
 
             with _calibration_lock:
                 _fingerprints[model_id] = fp
+                try:
+                    FP_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+                    with open(FP_STORAGE_DIR / f"{model_id}.json", "w") as f:
+                        json.dump(fp.model_dump(), f, indent=2)
+                except Exception:
+                    pass
             _jobs[job_id] = {
                 "status": "complete",
                 "result": {
@@ -345,3 +381,23 @@ def health_check():
 def register_fingerprint(fingerprint: Fingerprint) -> None:
     """Register a fingerprint in the in-memory store."""
     _fingerprints[fingerprint.model_id] = fingerprint
+
+
+# ── SPA / Static Files Serving ──
+
+_dist_dir = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+if _dist_dir.exists():
+    _assets_dir = _dist_dir / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="frontend-assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve SPA index.html or static files."""
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
+        target = _dist_dir / full_path
+        if full_path and target.exists() and target.is_file():
+            return FileResponse(target)
+        return FileResponse(_dist_dir / "index.html")
+

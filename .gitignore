@@ -24,7 +24,11 @@ venv/
 
 # Data (downloaded, not version-controlled)
 data/raw/
-data/processed/
+data/processed/*
+!data/processed/fingerprints/
+!data/processed/fingerprints/*.json
+!data/processed/splits/
+!data/processed/splits/*.json
 
 # Evaluation results (generated, not version-controlled)
 eval/results/
@@ -35,3 +39,4 @@ Thumbs.db
 
 # Gemini/Antigravity
 .gemini/
+*.zip

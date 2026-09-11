@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from typing import Optional
+
+# Prevent Hugging Face from hanging with network retries
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 import numpy as np
 
