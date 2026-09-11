@@ -40,3 +40,9 @@ Thumbs.db
 # Gemini/Antigravity
 .gemini/
 *.zip
+
+# Local Documentation (not tracked in remote repo)
+docs/
+PRD.md
+TRD.md
+DATAFLOW.md
