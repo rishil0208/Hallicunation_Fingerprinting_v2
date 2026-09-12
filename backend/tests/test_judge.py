@@ -15,6 +15,7 @@ from backend.app.gate.score import classify, compute_gate_score
 from backend.app.plugins.features.default import DefaultFeatureExtractor
 from backend.app.plugins.judges.gemini_judge import GeminiJudgeError, GeminiJudgePlugin
 from backend.app.plugins.judges.mock_judge import MockJudgePlugin
+from backend.app.plugins.judges.qwen_judge import QwenJudgeError, QwenJudgePlugin
 from backend.app.registry import (
     register_feature_extractor,
     register_judge,
@@ -31,9 +32,10 @@ from backend.app.schemas import (
 
 @pytest.fixture(autouse=True)
 def _register_plugins():
-    """Register mock plugins for all tests."""
+    """Register mock and local plugins for all tests."""
     register_feature_extractor(DefaultFeatureExtractor())
     register_judge(MockJudgePlugin())
+    register_judge(QwenJudgePlugin())
 
 
 def _make_fingerprint(t_low=0.3, t_high=0.7) -> Fingerprint:
@@ -162,3 +164,90 @@ class TestSymbolicExplanation:
         ]
         explanation = _build_symbolic_explanation("HIGH_RISK", patterns)
         assert "anomaly_pattern_1" in explanation
+
+
+# ── QwenJudgePlugin tests ──
+
+class TestQwenJudge:
+    def test_initialization(self):
+        judge = QwenJudgePlugin()
+        assert judge.name == "qwen"
+        assert "11434" in judge.host
+        assert "qwen" in judge.model_name
+
+    def test_is_available_false_on_closed_port(self):
+        assert QwenJudgePlugin.is_available("http://127.0.0.1:59999") is False
+
+    def test_offline_fallback_multiple_patterns(self):
+        judge = QwenJudgePlugin(host="http://127.0.0.1:59999")
+        patterns = [
+            {"name": "p1", "features_involved": ["H"], "strength": 0.9},
+            {"name": "p2", "features_involved": ["C"], "strength": 0.8},
+        ]
+        res = judge.judge("answer", {}, patterns)
+        assert isinstance(res, JudgeResult)
+        assert res.verdict == "HIGH_RISK"
+        assert res.confidence >= 0.8
+        assert "Local" in res.explanation
+
+    def test_offline_fallback_single_pattern(self):
+        judge = QwenJudgePlugin(host="http://127.0.0.1:59999")
+        patterns = [{"name": "p1", "features_involved": ["H"], "strength": 0.7}]
+        res = judge.judge("answer", {}, patterns)
+        assert res.verdict == "RESOLVED_AMBIGUOUS"
+
+    def test_offline_fallback_no_patterns(self):
+        judge = QwenJudgePlugin(host="http://127.0.0.1:59999")
+        res = judge.judge("answer", {}, [])
+        assert res.verdict == "LOW_RISK"
+
+    def test_mocked_ollama_success(self, monkeypatch):
+        import io
+        import json
+        import urllib.request
+
+        model_json_output = json.dumps({
+            "verdict": "HIGH_RISK",
+            "explanation": "Fabricated biographical details detected.",
+            "confidence": 0.92,
+        })
+        api_response = json.dumps({"response": model_json_output}).encode("utf-8")
+
+        class MockResponse:
+            def __init__(self, data):
+                self.data = data
+            def read(self):
+                return self.data
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=30.0: MockResponse(api_response))
+
+        judge = QwenJudgePlugin()
+        res = judge.judge("fabricated claim", {"gate_score": 0.5}, [{"name": "hedging"}])
+        assert isinstance(res, JudgeResult)
+        assert res.verdict == "HIGH_RISK"
+        assert res.confidence == 0.92
+        assert "Fabricated biographical details detected" in res.explanation
+        assert "[Qwen 2.5 Local]" in res.explanation
+
+    def test_escalation_with_qwen(self):
+        fp = _make_fingerprint(t_low=0.0, t_high=0.01)
+        evaluation = GateEvaluation(
+            gate_score=0.005,
+            gate_verdict="AMBIGUOUS",
+            thresholds=Thresholds(t_low=0.0, t_high=0.01),
+            triggered_patterns=[
+                TriggeredPattern(name="anomaly_pattern_1", features_involved=["H", "C"], strength=0.5)
+            ],
+            feature_breakdown={k: 0.5 for k in FEATURE_KEYS},
+            raw_features={k: 5.0 for k in FEATURE_KEYS},
+            model_id="test_model",
+            fingerprint_version="v1",
+        )
+        result = escalate_if_ambiguous(evaluation, "test answer", fp, judge_name="qwen")
+        assert result.verdict == "RESOLVED_AMBIGUOUS"
+        assert result.resolved_by == "llm_judge"
+        assert result.explanation_source == "llm_judge"

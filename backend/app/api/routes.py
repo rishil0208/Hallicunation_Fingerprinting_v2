@@ -21,6 +21,7 @@ from backend.app.gate.score import UncalibratedModelError
 from backend.app.plugins.features.default import DefaultFeatureExtractor
 from backend.app.plugins.judges.gemini_judge import GeminiJudgeError
 from backend.app.plugins.judges.mock_judge import MockJudgePlugin
+from backend.app.plugins.judges.qwen_judge import QwenJudgeError, QwenJudgePlugin
 from backend.app.registry import (
     register_feature_extractor,
     register_judge,
@@ -63,6 +64,7 @@ async def lifespan(application: FastAPI):
     extractor = DefaultFeatureExtractor()
     register_feature_extractor(extractor)
     register_judge(MockJudgePlugin())
+    register_judge(QwenJudgePlugin())
     
     if os.environ.get("GEMINI_API_KEY"):
         from backend.app.plugins.judges.gemini_judge import GeminiJudgePlugin
@@ -146,7 +148,15 @@ def score_endpoint(request: ScoreRequest):
     fingerprint = _fingerprints[request.model_id]
 
     import os
-    judge_to_use = "gemini" if os.environ.get("GEMINI_API_KEY") else "mock"
+    judge_override = os.environ.get("JUDGE_NAME")
+    if judge_override:
+        judge_to_use = judge_override
+    elif os.environ.get("USE_QWEN_JUDGE", "1").lower() in ("1", "true", "yes"):
+        judge_to_use = "qwen"
+    elif os.environ.get("GEMINI_API_KEY"):
+        judge_to_use = "gemini"
+    else:
+        judge_to_use = "mock"
 
     try:
         result = score_answer(
@@ -157,7 +167,7 @@ def score_endpoint(request: ScoreRequest):
         )
     except UncalibratedModelError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except GeminiJudgeError as e:
+    except (GeminiJudgeError, QwenJudgeError) as e:
         # ADR A-C1: judge failure → HTTP 502
         raise HTTPException(status_code=502, detail=f"Judge error: {e}")
 
