@@ -7,7 +7,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?style=flat&logo=react&logoColor=black)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF?style=flat&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Tests](https://img.shields.io/badge/Tests-121%20Passed%20(100%25)-success?style=flat&logo=pytest&logoColor=white)](https://pytest.org/)
+[![Tests](https://img.shields.io/badge/Tests-128%20Passed%20(100%25)-success?style=flat&logo=pytest&logoColor=white)](https://pytest.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <br />
@@ -97,6 +97,7 @@ The Symbolic Gate synthesizes normalized telemetry vectors into anomaly activati
 ### Prerequisites
 * **Python 3.10+**
 * **Node.js 18+ & npm** (for frontend)
+* **Ollama (Optional but Recommended):** For 100% offline, privacy-preserving LLM Judge escalation.
 
 ### 1. One-Click Launch (Recommended)
 
@@ -116,7 +117,23 @@ This single command starts both the **FastAPI Backend (port 8000)** and the **Re
 
 ---
 
-### 2. Manual Setup
+### 2. Run with Local Qwen 2.5 Judge (Ollama)
+
+HFG can escalate ambiguous cases to a local Qwen 2.5 judge, processing structured JSON telemetry completely offline.
+
+1. **Start Ollama and pull the model:**
+   ```bash
+   ollama serve
+   ollama pull qwen2.5:7b
+   ```
+2. **Start the backend:** (It automatically detects and uses Qwen when available)
+   ```bash
+   ./start_linux.sh
+   ```
+
+---
+
+### 3. Manual Setup
 
 ```bash
 # Clone the repository
@@ -211,7 +228,7 @@ Hallicunation_Fingerprinting_v2/
 │   │   ├── plugins/                 # Extensible feature extractors & LLM judges
 │   │   ├── registry.py              # Dynamic plugin registry
 │   │   └── schemas.py               # Pydantic data models
-│   └── tests/                       # 121 unit tests (100% pass)
+│   └── tests/                       # 128 unit tests (100% pass)
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/ScorePage.jsx      # Interactive scoring & live presets
@@ -232,10 +249,10 @@ Hallicunation_Fingerprinting_v2/
 
 ## 🧪 Test Suite & Verification
 
-All core modules are covered by **121 automated unit tests**:
+All core modules are covered by **128 automated unit tests**:
 ```bash
 pytest backend/tests/ -v
-# ======================== 121 passed in ~7s ========================
+# ======================== 128 passed in ~7s ========================
 ```
 * **Adaptive Gate Tests:** Threshold constraint proofs, fallback validation, boundary verification.
 * **Clustering & Alignment:** K-Means label alignment and normalization invariance.
