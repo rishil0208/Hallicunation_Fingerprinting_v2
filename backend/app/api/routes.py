@@ -3,11 +3,19 @@ from __future__ import annotations
 
 import json
 import uuid
+import warnings
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, Optional
+
+# Suppress harmless requests version mismatch warnings if present in environment
+try:
+    from requests.exceptions import RequestsDependencyWarning
+    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
+except ImportError:
+    pass
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -51,12 +59,17 @@ def load_stored_fingerprints() -> None:
             pass
 
 
+_current_judge_mode = "auto"
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Register default plugins on startup."""
     import os
     from dotenv import load_dotenv
     load_dotenv(".env")
+    if not os.environ.get("GEMINI_API_KEY"):
+        load_dotenv(".env.example")
 
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
@@ -66,9 +79,10 @@ async def lifespan(application: FastAPI):
     register_judge(MockJudgePlugin())
     register_judge(QwenJudgePlugin())
     
-    if os.environ.get("GEMINI_API_KEY"):
-        from backend.app.plugins.judges.gemini_judge import GeminiJudgePlugin
-        register_judge(GeminiJudgePlugin())
+    # Register GeminiJudgePlugin with the loaded environment key
+    from backend.app.plugins.judges.gemini_judge import GeminiJudgePlugin
+    initial_key = os.environ.get("GEMINI_API_KEY", "")
+    register_judge(GeminiJudgePlugin(api_key=initial_key))
 
     load_stored_fingerprints()
 
@@ -97,6 +111,8 @@ MAX_ANSWER_LENGTH = 50_000
 class ScoreRequest(BaseModel):
     answer: str = Field(..., max_length=MAX_ANSWER_LENGTH)
     model_id: str
+    judge_mode: Optional[str] = None  # 'auto', 'api', 'local', 'mock'
+    api_key: Optional[str] = None     # optional one-time key override
 
 
 class ScoreResponse(BaseModel):
@@ -110,6 +126,21 @@ class ScoreResponse(BaseModel):
     explanation_source: str
     model_id: str
     fingerprint_version: str
+
+
+class JudgeStatusResponse(BaseModel):
+    active_mode: str
+    api_key_configured: bool
+    api_key_masked: Optional[str] = None
+    local_ollama_available: bool
+    gemini_model: str
+    qwen_model: str
+    guardrails: dict[str, str]
+
+
+class ConfigureJudgeRequest(BaseModel):
+    api_key: Optional[str] = None
+    judge_mode: Optional[str] = None  # 'auto', 'api', 'local', 'mock'
 
 
 class ModelInfo(BaseModel):
@@ -134,11 +165,101 @@ class HealthResponse(BaseModel):
     timestamp: str
 
 
+# ── GET & POST /api/v1/judge — Judge Coexistence & Configuration ──
+
+@app.get("/api/v1/judge/status", response_model=JudgeStatusResponse)
+def get_judge_status():
+    """Check current judge mode, API key status, and local Ollama reachability."""
+    from backend.app.registry import get_judge
+    import os
+
+    # Check API key
+    current_key = os.environ.get("GEMINI_API_KEY", "")
+    try:
+        gemini_plugin = get_judge("gemini")
+        if getattr(gemini_plugin, "api_key", None):
+            current_key = gemini_plugin.api_key
+    except Exception:
+        pass
+
+    masked_key = None
+    if current_key:
+        if len(current_key) > 8:
+            masked_key = f"{current_key[:4]}...{current_key[-4:]}"
+        else:
+            masked_key = "***"
+
+    ollama_ok = QwenJudgePlugin.is_available()
+
+    return JudgeStatusResponse(
+        active_mode=_current_judge_mode,
+        api_key_configured=bool(current_key),
+        api_key_masked=masked_key,
+        local_ollama_available=ollama_ok,
+        gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        qwen_model=os.environ.get("QWEN_MODEL", "qwen2.5:7b"),
+        guardrails={
+            "gate_filtering": "LLM Judge is ONLY called when score G is strictly ambiguous (TL <= G <= TH). Low/High risk answers cost 0 tokens.",
+            "token_budget": "Payload truncated to 2,000 chars; max_output_tokens=256; temperature=0.1.",
+            "cache": "Exact duplicate queries hit in-memory hash cache with zero token consumption.",
+            "sanitization": "API keys are never logged, never returned to client, and redacted from error traces."
+        }
+    )
+
+
+@app.post("/api/v1/judge/configure")
+def configure_judge(req: ConfigureJudgeRequest):
+    """Dynamically set the Gemini API key or change judge mode without server restart."""
+    global _current_judge_mode
+    import os
+    from backend.app.registry import get_judge
+
+    if req.judge_mode:
+        valid_modes = ("auto", "api", "local", "mock")
+        if req.judge_mode.lower() in valid_modes:
+            _current_judge_mode = req.judge_mode.lower()
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid judge mode '{req.judge_mode}'. Choose from {valid_modes}.",
+            )
+
+    if req.api_key is not None:
+        clean_key = req.api_key.strip()
+        os.environ["GEMINI_API_KEY"] = clean_key
+        try:
+            gemini_plugin = get_judge("gemini")
+            gemini_plugin.api_key = clean_key
+        except Exception:
+            pass
+
+        # Also persist to .env if file exists
+        env_path = Path(".env")
+        if env_path.exists():
+            try:
+                lines = env_path.read_text(encoding="utf-8").splitlines()
+                key_found = False
+                new_lines = []
+                for line in lines:
+                    if line.startswith("GEMINI_API_KEY="):
+                        new_lines.append(f"GEMINI_API_KEY={clean_key}")
+                        key_found = True
+                    else:
+                        new_lines.append(line)
+                if not key_found:
+                    new_lines.append(f"GEMINI_API_KEY={clean_key}")
+                env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            except Exception:
+                pass
+
+    return get_judge_status()
+
+
 # ── POST /api/v1/score ──
 
 @app.post("/api/v1/score", response_model=ScoreResponse)
 def score_endpoint(request: ScoreRequest):
-    """Score an answer for hallucination risk."""
+    """Score an answer for hallucination risk with adaptive coexistence."""
     if request.model_id not in _fingerprints:
         raise HTTPException(
             status_code=404,
@@ -148,15 +269,51 @@ def score_endpoint(request: ScoreRequest):
     fingerprint = _fingerprints[request.model_id]
 
     import os
-    judge_override = os.environ.get("JUDGE_NAME")
-    if judge_override:
-        judge_to_use = judge_override
-    elif os.environ.get("USE_QWEN_JUDGE", "1").lower() in ("1", "true", "yes"):
-        judge_to_use = "qwen"
-    elif os.environ.get("GEMINI_API_KEY"):
-        judge_to_use = "gemini"
-    else:
+    from backend.app.registry import get_judge
+
+    # 1. Resolve API key if passed in request
+    if request.api_key:
+        try:
+            gemini_plugin = get_judge("gemini")
+            gemini_plugin.api_key = request.api_key.strip()
+        except Exception:
+            pass
+
+    # 2. Check current API key configuration
+    current_key = os.environ.get("GEMINI_API_KEY", "")
+    try:
+        gemini_plugin = get_judge("gemini")
+        if getattr(gemini_plugin, "api_key", None):
+            current_key = gemini_plugin.api_key
+    except Exception:
+        pass
+
+    # 3. Determine judge to use based on mode & coexistence
+    mode = (request.judge_mode or _current_judge_mode or "auto").lower()
+
+    if mode == "mock":
         judge_to_use = "mock"
+    elif mode == "local":
+        judge_to_use = "qwen"
+    elif mode == "api":
+        if current_key:
+            judge_to_use = "gemini"
+        else:
+            # User explicitly selected API mode but hasn't entered key yet:
+            # fall back gracefully to mock with informative message
+            judge_to_use = "mock"
+    else:  # "auto" (Smart Coexistence)
+        if current_key:
+            # 1st priority: Cloud API judge if key is available
+            judge_to_use = "gemini"
+        elif QwenJudgePlugin.is_available():
+            # 2nd priority: Local Ollama judge if running
+            judge_to_use = "qwen"
+        else:
+            # 3rd priority: Safe zero-cost deterministic mock judge
+            judge_to_use = "mock"
+
+    force_judge = (mode == "api" and bool(current_key))
 
     try:
         result = score_answer(
@@ -164,12 +321,21 @@ def score_endpoint(request: ScoreRequest):
             model_id=request.model_id,
             fingerprint=fingerprint,
             judge_name=judge_to_use,
+            force_judge=force_judge,
         )
     except UncalibratedModelError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except (GeminiJudgeError, QwenJudgeError) as e:
-        # ADR A-C1: judge failure → HTTP 502
-        raise HTTPException(status_code=502, detail=f"Judge error: {e}")
+        # ADR A-C1: if explicit judge mode was set and failed, return 502
+        if mode in ("api", "local"):
+            raise HTTPException(status_code=502, detail=f"Judge error: {e}")
+        # In auto mode, gracefully fall back to mock judge rather than failing
+        result = score_answer(
+            answer=request.answer,
+            model_id=request.model_id,
+            fingerprint=fingerprint,
+            judge_name="mock",
+        )
 
     return ScoreResponse(
         verdict=result.verdict,

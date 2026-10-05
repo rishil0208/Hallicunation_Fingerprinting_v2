@@ -5,11 +5,15 @@
 
 const API_BASE = '/api/v1';
 
-export async function scoreAnswer(answer, modelId) {
+export async function scoreAnswer(answer, modelId, judgeMode = null, apiKey = null) {
+  const payload = { answer, model_id: modelId };
+  if (judgeMode) payload.judge_mode = judgeMode;
+  if (apiKey) payload.api_key = apiKey;
+
   const res = await fetch(`${API_BASE}/score`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer, model_id: modelId }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -52,5 +56,24 @@ export async function getEvalSummary() {
 
 export async function healthCheck() {
   const res = await fetch(`${API_BASE}/health`);
+  return res.json();
+}
+
+export async function getJudgeStatus() {
+  const res = await fetch(`${API_BASE}/judge/status`);
+  if (!res.ok) throw new Error(`Failed to fetch judge status`);
+  return res.json();
+}
+
+export async function configureJudge({ apiKey = null, judgeMode = null } = {}) {
+  const res = await fetch(`${API_BASE}/judge/configure`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, judge_mode: judgeMode }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Failed to configure judge`);
+  }
   return res.json();
 }

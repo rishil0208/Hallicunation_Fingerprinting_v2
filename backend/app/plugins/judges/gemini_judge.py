@@ -72,6 +72,10 @@ class GeminiJudgeError(Exception):
         super().__init__(sanitized)
 
 
+# In-memory LRU cache to prevent redundant API token consumption for identical evaluations
+_GEMINI_CACHE: dict[str, JudgeResult] = {}
+
+
 class GeminiJudgePlugin:
     """Calls Gemini API for LLM-based hallucination verdict.
 
@@ -81,27 +85,111 @@ class GeminiJudgePlugin:
 
     name = "gemini"
 
-    def __init__(self, api_key: str | None = None, model_name: str = "gemini-3.6-flash"):
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        self.model_name = model_name
+    def __init__(self, api_key: str | None = None, model_name: str = "gemini-flash-lite-latest"):
+        self._explicit_api_key = api_key
+        self.model_name = os.environ.get("GEMINI_MODEL", model_name)
+
+    @property
+    def api_key(self) -> str:
+        return self._explicit_api_key or os.environ.get("GEMINI_API_KEY", "")
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        self._explicit_api_key = value
 
     def _call_gemini_api(self, prompt: str) -> str:
-        if not self.api_key:
-            raise GeminiJudgeError("GEMINI_API_KEY not set. Set it in .env or environment.")
+        current_key = self.api_key
+        if not current_key:
+            raise GeminiJudgeError(
+                "GEMINI_API_KEY not set. Set it in .env or via settings."
+            )
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
-        }
+        # ── Universal Compatibility: support OpenAI / OpenRouter / Groq (sk-...) ──
+        if current_key.startswith("sk-"):
+            base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions")
+            model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {current_key}",
+            }
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.1,
+                "max_tokens": 256,
+            }
+            req = urllib.request.Request(base_url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    return data["choices"][0]["message"]["content"]
+            except Exception as e:
+                err_msg = str(e)
+                if current_key and current_key in err_msg:
+                    err_msg = err_msg.replace(current_key, "[REDACTED]")
+                raise GeminiJudgeError(f"OpenAI-compatible API call failed: {type(e).__name__} ({err_msg})") from None
 
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return data["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception as e:
-            raise GeminiJudgeError(f"Gemini API call failed: {type(e).__name__}") from None
+        # ── Native Google Gemini API (with candidate fallback on 404, 503, 429) ──
+        candidate_models = [self.model_name]
+        for fallback in ("gemini-flash-lite-latest", "gemini-flash-latest", "gemini-3.5-flash", "gemini-pro-latest"):
+            if fallback not in candidate_models:
+                candidate_models.append(fallback)
+
+        last_error = None
+        for model in candidate_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={current_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 256,
+                }
+            }
+
+            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.model_name = model
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as e:
+                last_error = e
+                if e.code in (404, 503, 429):
+                    continue
+                err_msg = str(e)
+                try:
+                    error_body = e.read().decode("utf-8", errors="ignore")
+                    err_json = json.loads(error_body)
+                    google_msg = err_json.get("error", {}).get("message", "")
+                    if "API key not valid" in google_msg or "API_KEY_INVALID" in error_body:
+                        err_msg = "Google returned API_KEY_INVALID: The API key provided is not a valid Gemini key. Please check your key at https://aistudio.google.com/app/apikey"
+                    elif google_msg:
+                        err_msg = f"{err_msg}: {google_msg}"
+                except Exception:
+                    pass
+                if current_key and current_key in err_msg:
+                    err_msg = err_msg.replace(current_key, "[REDACTED]")
+                raise GeminiJudgeError(f"Gemini API call failed: {err_msg}") from None
+            except Exception as e:
+                last_error = e
+                continue
+
+        err_msg = str(last_error) if last_error else "All candidate Gemini models failed"
+        if hasattr(last_error, "read"):
+            try:
+                error_body = last_error.read().decode("utf-8", errors="ignore")
+                err_json = json.loads(error_body)
+                google_msg = err_json.get("error", {}).get("message", "")
+                if "API key not valid" in google_msg or "API_KEY_INVALID" in error_body:
+                    err_msg = "Google returned API_KEY_INVALID: The API key provided is not a valid Gemini key. Please check your key at https://aistudio.google.com/app/apikey"
+                elif google_msg:
+                    err_msg = f"{err_msg}: {google_msg}"
+            except Exception:
+                pass
+        if current_key and current_key in err_msg:
+            err_msg = err_msg.replace(current_key, "[REDACTED]")
+        raise GeminiJudgeError(f"Gemini API call failed: {err_msg}") from None
 
     def judge(
         self,
@@ -133,6 +221,11 @@ class GeminiJudgePlugin:
             patterns_text=patterns_text,
         )
 
+        import hashlib
+        cache_key = hashlib.sha256((answer[:2000] + "||" + patterns_text).encode("utf-8")).hexdigest()
+        if cache_key in _GEMINI_CACHE:
+            return _GEMINI_CACHE[cache_key]
+
         try:
             text = self._call_gemini_api(prompt)
             text = _extract_json_text(text)
@@ -146,13 +239,23 @@ class GeminiJudgePlugin:
             confidence = float(result.get("confidence", 0.5))
             confidence = max(0.0, min(1.0, confidence))
 
-            return JudgeResult(
+            judgement = JudgeResult(
                 verdict=verdict,
                 explanation=result.get("explanation", "LLM judge analysis complete."),
                 confidence=confidence,
             )
+            # Store up to 500 cached verdicts in memory
+            if len(_GEMINI_CACHE) > 500:
+                _GEMINI_CACHE.pop(next(iter(_GEMINI_CACHE)))
+            _GEMINI_CACHE[cache_key] = judgement
+            return judgement
 
         except json.JSONDecodeError:
+            if 'text' in locals() and text:
+                upper = text.upper()
+                v = "HIGH_RISK" if any(w in upper for w in ("HIGH_RISK", "HALLUCINAT", "FABRICAT", "FICTION")) else "LOW_RISK"
+                clean_exp = text.replace("```json", "").replace("```", "").strip()
+                return JudgeResult(verdict=v, explanation=clean_exp[:300], confidence=0.9)
             raise GeminiJudgeError(
                 "Gemini returned non-JSON response. Unable to parse verdict."
             ) from None

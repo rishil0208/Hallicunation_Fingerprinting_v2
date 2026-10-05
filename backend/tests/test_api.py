@@ -169,3 +169,34 @@ class TestEvalSummary:
     def test_eval_summary_no_results(self, client):
         resp = client.get("/api/v1/eval/summary")
         assert resp.status_code == 200
+
+
+# ── Judge Status & Configuration endpoints ──
+
+class TestJudgeConfiguration:
+    def test_get_judge_status(self, client):
+        resp = client.get("/api/v1/judge/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "active_mode" in data
+        assert "api_key_configured" in data
+        assert "guardrails" in data
+
+    def test_configure_judge_mode(self, client):
+        resp = client.post("/api/v1/judge/configure", json={"judge_mode": "mock"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["active_mode"] == "mock"
+
+    def test_configure_judge_invalid_mode(self, client):
+        resp = client.post("/api/v1/judge/configure", json={"judge_mode": "invalid_mode"})
+        assert resp.status_code == 400
+
+    def test_configure_judge_api_key(self, client):
+        resp = client.post("/api/v1/judge/configure", json={"api_key": "AIzaSyTestKey123456789"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["api_key_configured"] is True
+        assert data["api_key_masked"] is not None
+        assert "AIza" in data["api_key_masked"]
+

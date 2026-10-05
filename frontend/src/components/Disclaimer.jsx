@@ -1,15 +1,23 @@
 /**
  * Persistent research-demo disclaimer (spec Section 5.13, view 4).
- * Not a dismissible modal — always visible.
+ * Always visible at the bottom of the canvas with subtle, clean enterprise styling.
  */
 export default function Disclaimer() {
   return (
-    <div className="border-t border-graphite-600 bg-graphite-800 px-6 py-3 text-xs text-paper-400">
-      <strong className="text-paper-100">Research Prototype.</strong>{' '}
-      This is a research demonstration of per-model hallucination fingerprinting,
-      not a production fact-checking system. Verdicts reflect statistical pattern
-      analysis on calibration data and should not be treated as ground truth.
-      See Section 5.11 of the project specification.
-    </div>
+    <footer className="border-t border-slate-200 bg-white/80 py-4 px-6 text-center text-xs text-slate-500">
+      <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+        <p className="text-[11px] text-slate-500">
+          <strong className="text-slate-800 font-semibold">Research Framework:</strong>{' '}
+          Model-calibrated neuro-symbolic hallucination detection prototype. Calibrated verdicts reflect statistical pattern matching.
+        </p>
+        <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+          <span>Stage 1: Features</span>
+          <span>•</span>
+          <span>Stage 2: Symbolic Gate</span>
+          <span>•</span>
+          <span>Stage 3: Escalation</span>
+        </div>
+      </div>
+    </footer>
   );
 }

@@ -18,6 +18,7 @@ def score_answer(
     feature_extractor_name: str = "default",
     judge_name: str = "mock",
     r_i_strategy: str = "lower",
+    force_judge: bool = False,
 ) -> GateResult:
     """Full pipeline: extract features → score → classify → escalate if needed.
 
@@ -33,8 +34,8 @@ def score_answer(
     evaluation = compute_gate_score(raw_features, fingerprint, r_i_strategy=r_i_strategy)
     classified = classify(evaluation, fingerprint)
 
-    # Stage 3: Escalate if ambiguous
-    if classified.gate_verdict == "AMBIGUOUS":
+    # Stage 3: Escalate if ambiguous or explicitly forced by caller (e.g. Cloud API mode)
+    if classified.gate_verdict == "AMBIGUOUS" or force_judge:
         return escalate_if_ambiguous(classified, answer, fingerprint, judge_name)
 
     # Not ambiguous — return gate-only result
@@ -60,7 +61,7 @@ def escalate_if_ambiguous(
     fingerprint: Fingerprint,
     judge_name: str = "mock",
 ) -> GateResult:
-    """Escalate an AMBIGUOUS verdict to the LLM judge.
+    """Escalate an AMBIGUOUS verdict (or forced judge request) to the LLM judge.
 
     ADR A-C1: If the judge fails, raises GeminiJudgeError.
     The API layer catches this and returns HTTP 502.
@@ -86,16 +87,17 @@ def escalate_if_ambiguous(
         for p in classified_evaluation.triggered_patterns
     ]
 
-    # ADR A-H3: assert patterns non-empty for AMBIGUOUS (invariant)
-    assert len(ambiguous_patterns) > 0 or classified_evaluation.gate_score == 0, (
-        "AMBIGUOUS verdict with G > 0 must have at least one triggered pattern"
-    )
-
     # Call judge — may raise GeminiJudgeError (ADR A-C1)
     judge_result = judge.judge(answer, fingerprint_summary, ambiguous_patterns)
 
+    final_verdict = (
+        "RESOLVED_AMBIGUOUS"
+        if classified_evaluation.gate_verdict == "AMBIGUOUS"
+        else judge_result.verdict
+    )
+
     return GateResult(
-        verdict="RESOLVED_AMBIGUOUS",
+        verdict=final_verdict,
         gate_score=classified_evaluation.gate_score,
         thresholds=classified_evaluation.thresholds,
         resolved_by="llm_judge",

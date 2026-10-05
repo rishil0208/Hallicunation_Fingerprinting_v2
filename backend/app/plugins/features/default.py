@@ -22,6 +22,10 @@ HEDGE_PHRASES = [
     "unlikely", "probably", "not sure", "uncertain", "roughly",
     "approximately", "somewhat", "sort of", "kind of", "in a way",
     "to some extent", "as far as I know", "I'm not certain",
+    "suggests", "indicates", "potential", "potentially", "hypothetically",
+    "assumed", "presumed", "estimated", "purportedly", "supposedly",
+    "allegedly", "tentatively", "generally", "typically", "often",
+    "may be", "could have", "might have", "would seem", "appears", "seems",
 ]
 
 CONFIDENCE_PHRASES = [
@@ -29,6 +33,10 @@ CONFIDENCE_PHRASES = [
     "obviously", "without a doubt", "for sure", "guaranteed", "always",
     "never", "must be", "exactly", "precisely", "unquestionably",
     "indisputably", "no question", "100%", "every single",
+    "discovered", "confirms", "confirmed", "revealed", "established",
+    "proves", "proven", "concluded", "demonstrates", "demonstrated",
+    "undeniable", "completely", "entirely", "strictly", "officially",
+    "unambiguously", "conclusively", "recorded", "documented",
 ]
 
 CITATION_GESTURES = [
@@ -37,6 +45,10 @@ CITATION_GESTURES = [
     "evidence suggests", "data shows", "findings indicate",
     "as reported", "reportedly", "it is said",
     "some say", "many believe", "it is known",
+    "records show", "records indicate", "history shows", "historians say",
+    "scientists report", "researchers found", "documents state", "treaty states",
+    "reported by", "stated by", "claimed by", "noted by", "cited in",
+    "referenced by", "discovered by", "published by", "announced by",
 ]
 
 
@@ -89,13 +101,16 @@ def _specificity(text: str) -> float:
     return min(specific_count / len(doc), 1.0)
 
 
+SOURCE_ENTITY_LABELS = {"PERSON", "ORG", "GPE", "LAW", "WORK_OF_ART"}
+
+
 def _citation_vagueness(text: str) -> float:
     """C — source-gesturing phrases not followed by a named source within N tokens."""
     nlp = _get_nlp()
     doc = nlp(text)
     text_lower = text.lower()
 
-    entity_starts = {ent.start_char for ent in doc.ents}
+    entity_starts = {ent.start_char for ent in doc.ents if ent.label_ in SOURCE_ENTITY_LABELS}
 
     gesture_count = 0
     vague_count = 0
@@ -134,18 +149,34 @@ def _evidence_density(text: str) -> float:
     if not sentences:
         return 0.0
 
-    evidence_count = 0
+    entity_starts = {ent.start_char for ent in doc.ents if ent.label_ in SOURCE_ENTITY_LABELS}
+    evidence_count = 0.0
     for sent in sentences:
-        entities = [ent for ent in sent.ents]
-        # A sentence with >=2 entities or an entity + a verb = evidence
-        if len(entities) >= 2:
-            evidence_count += 1
-        elif len(entities) >= 1:
-            has_verb = any(t.pos_ == "VERB" for t in sent)
-            if has_verb:
-                evidence_count += 1
+        s_text = sent.text.lower()
+        has_vague_gesture = False
+        for g in CITATION_GESTURES:
+            idx = s_text.find(g)
+            if idx != -1:
+                end_win = idx + len(g) + 50
+                if not any(idx + len(g) <= es - sent.start_char < end_win for es in entity_starts):
+                    has_vague_gesture = True
+                    break
 
-    return evidence_count / len(sentences)
+        if not has_vague_gesture:
+            source_entities = [ent for ent in sent.ents if ent.label_ in SOURCE_ENTITY_LABELS]
+            has_subj = any(t.dep_ in ("nsubj", "nsubjpass") for t in sent)
+            has_verb = any(t.pos_ == "VERB" for t in sent)
+            has_obj = any(t.dep_ in ("dobj", "pobj", "attr", "acomp") for t in sent)
+
+            # Grounded factual assertion: requires verifiable source entity or attribution
+            # combined with complete relational triple (subj + verb + obj)
+            if source_entities and has_subj and has_verb and has_obj:
+                evidence_count += 1.0
+            elif len(sent.ents) >= 2 and any(ent.label_ in ("DATE", "CARDINAL", "TIME") for ent in sent.ents) and has_verb and has_subj:
+                # Factual claim with specific metrics/dates but without grounded source attribution
+                evidence_count += 0.5
+
+    return min(evidence_count / len(sentences), 1.0)
 
 
 def _semantic_drift(text: str) -> float:
@@ -154,25 +185,46 @@ def _semantic_drift(text: str) -> float:
     if len(sentences) < 2:
         return 0.0
 
-    model = _get_sentence_model()
-    embeddings = model.encode(sentences, show_progress_bar=False)
+    try:
+        model = _get_sentence_model()
+        embeddings = model.encode(sentences, show_progress_bar=False)
 
-    # Pairwise cosine similarities
-    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-    norms = np.maximum(norms, 1e-10)
-    normalized = embeddings / norms
+        # Pairwise cosine similarities
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-10)
+        normalized = embeddings / norms
 
-    similarities = normalized @ normalized.T
+        similarities = normalized @ normalized.T
 
-    # Extract upper triangle (excluding diagonal)
-    n = len(sentences)
-    upper_indices = np.triu_indices(n, k=1)
-    pairwise = similarities[upper_indices]
+        # Extract upper triangle (excluding diagonal)
+        n = len(sentences)
+        upper_indices = np.triu_indices(n, k=1)
+        pairwise = similarities[upper_indices]
 
-    if len(pairwise) == 0:
-        return 0.0
+        if len(pairwise) == 0:
+            return 0.0
+        if len(pairwise) == 1:
+            return float(1.0 - pairwise[0]) * 0.1
 
-    return float(np.var(pairwise))
+        return float(np.var(pairwise))
+    except Exception:
+        # Fallback for offline / un-downloaded embedding model:
+        # compute word-set Jaccard/overlap variance across sentences
+        token_sets = [set(re.findall(r'\w+', s.lower())) for s in sentences]
+        overlaps = []
+        for i in range(len(token_sets)):
+            for j in range(i + 1, len(token_sets)):
+                s1, s2 = token_sets[i], token_sets[j]
+                if not s1 or not s2:
+                    overlaps.append(0.0)
+                else:
+                    jaccard = len(s1 & s2) / max(len(s1 | s2), 1)
+                    overlaps.append(jaccard)
+        if not overlaps:
+            return 0.0
+        if len(overlaps) == 1:
+            return float(1.0 - overlaps[0]) * 0.1
+        return float(np.var(overlaps)) + float(1.0 - np.mean(overlaps)) * 0.05
 
 
 def _confidence_density(text: str) -> float:

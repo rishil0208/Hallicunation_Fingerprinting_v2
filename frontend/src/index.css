@@ -1,63 +1,172 @@
 @import "tailwindcss";
 
-/* ── Signal Forensics Design Token System ── */
-/* Spec Section 5.13 */
+/* ── Modern Enterprise Light Theme (Lovable / Cloud Platform Style) ── */
+
+:root {
+  /* ── Core Light Canvas ── */
+  --bg-page:        #F8FAFC;
+  --bg-card:        #FFFFFF;
+  --bg-subtle:      #F1F5F9;
+  --bg-muted:       #E2E8F0;
+
+  --border:         #E2E8F0;
+  --border-strong:  #CBD5E1;
+  --border-hover:   #94A3B8;
+
+  /* ── Typography colors ── */
+  --text-heading:   #0F172A;
+  --text-body:      #334155;
+  --text-muted:     #64748B;
+  --text-light:     #94A3B8;
+
+  /* ── Semantic Accents ── */
+  --primary:        #2563EB;
+  --primary-hover:  #1D4ED8;
+  --primary-tint:   #EFF6FF;
+  --primary-border: #BFDBFE;
+
+  --emerald:        #059669;
+  --emerald-tint:   #ECFDF5;
+  --emerald-border: #A7F3D0;
+
+  --amber:          #D97706;
+  --amber-tint:     #FFFBEB;
+  --amber-border:   #FDE68A;
+
+  --red:            #DC2626;
+  --red-tint:       #FEF2F2;
+  --red-border:     #FECACA;
+
+  --indigo:         #4F46E5;
+  --indigo-tint:    #EEF2FF;
+  --indigo-border:  #C7D2FE;
+
+  /* ── Shadows ── */
+  --shadow-sm:      0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
+  --shadow-card:    0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg:      0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
+
+  /* ── Radii ── */
+  --radius-sm:      6px;
+  --radius-md:      10px;
+  --radius-lg:      14px;
+  --radius-xl:      18px;
+
+  /* ── Typography ── */
+  --font-sans:      'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:      'JetBrains Mono', ui-monospace, Consolas, monospace;
+}
 
 @theme {
-  /* Graphite ink scale */
-  --color-graphite-950: #0B0D10;
-  --color-graphite-800: #14171C;
-  --color-graphite-600: #262B33;
+  --color-page: #F8FAFC;
+  --color-card: #FFFFFF;
+  --color-subtle: #F1F5F9;
+  --color-muted-bg: #E2E8F0;
 
-  /* Paper text */
-  --color-paper-100: #E8EAED;
-  --color-paper-400: #8B93A1;
+  --color-border: #E2E8F0;
+  --color-border-strong: #CBD5E1;
 
-  /* Three semantic signal colors — no others */
-  --color-signal-teal: #4FE3C1;
-  --color-signal-amber: #F2B84B;
-  --color-signal-coral: #FF6B4A;
+  --color-heading: #0F172A;
+  --color-body: #334155;
+  --color-muted: #64748B;
+  --color-light: #94A3B8;
 
-  /* Typography */
-  --font-display: 'Space Grotesk', sans-serif;
-  --font-body: 'Inter', sans-serif;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-tint: #EFF6FF;
+
+  --color-emerald: #059669;
+  --color-emerald-tint: #ECFDF5;
+
+  --color-amber: #D97706;
+  --color-amber-tint: #FFFBEB;
+
+  --color-red: #DC2626;
+  --color-red-tint: #FEF2F2;
+
+  --color-indigo: #4F46E5;
+  --color-indigo-tint: #EEF2FF;
+
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
-/* ── Base styles ── */
+/* ── Base Styles ── */
+
+* {
+  box-sizing: border-box;
+}
 
 body {
-  background-color: var(--color-graphite-950);
-  color: var(--color-paper-100);
-  font-family: var(--font-body);
+  background-color: var(--bg-page);
+  color: var(--text-body);
+  font-family: var(--font-sans);
   margin: 0;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3 {
-  font-family: var(--font-display);
-  font-weight: 500;
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-sans);
+  color: var(--text-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 code, .mono {
   font-family: var(--font-mono);
 }
 
-/* ── Verdict colors ── */
+/* ── Verdict Status Classes ── */
 
-.verdict-low-risk { color: var(--color-signal-teal); }
-.verdict-ambiguous { color: var(--color-signal-amber); }
-.verdict-high-risk { color: var(--color-signal-coral); }
-.verdict-resolved { color: var(--color-signal-amber); }
+.verdict-low-risk {
+  color: var(--emerald);
+  background-color: var(--emerald-tint);
+  border-color: var(--emerald-border);
+}
 
-/* ── Fingerprint Radar animation ── */
+.verdict-ambiguous {
+  color: var(--amber);
+  background-color: var(--amber-tint);
+  border-color: var(--amber-border);
+}
 
+.verdict-high-risk {
+  color: var(--red);
+  background-color: var(--red-tint);
+  border-color: var(--red-border);
+}
+
+.verdict-resolved {
+  color: var(--indigo);
+  background-color: var(--indigo-tint);
+  border-color: var(--indigo-border);
+}
+
+/* ── Custom Smooth Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* ── Fingerprint Radar Animation ── */
 @media (prefers-reduced-motion: no-preference) {
   .radar-line {
     stroke-dasharray: 1000;
     stroke-dashoffset: 1000;
-    animation: draw-signature 800ms ease-out forwards;
+    animation: draw-signature 800ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 }
 

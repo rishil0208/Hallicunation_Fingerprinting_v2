@@ -8,8 +8,6 @@ version = "0.1.0"
 description = "Model-Calibrated Neuro-Symbolic Decision Gate for Hallucination Detection"
 requires-python = ">=3.10"
 dependencies = [
-    "setuptools<81",  # PyReason uses pkg_resources, removed in setuptools>=81
-    "pyreason",
     "fastapi",
     "uvicorn[standard]",
     "pydantic>=2.0",
@@ -20,6 +18,7 @@ dependencies = [
     "pandas",
     "pyyaml",
     "google-generativeai",
+    "chardet>=5.0.0,<6.0.0",
 ]
 
 [project.optional-dependencies]
